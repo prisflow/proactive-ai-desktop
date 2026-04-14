@@ -7,7 +7,6 @@ import {
   PromptTemplate,
   migrateTemplateRef,
   DEFAULT_TEMPLATE_NAME,
-  PluginListEntry,
 } from '@shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,23 +19,13 @@ import {
   clearConversationMemory,
   createTemplate,
   deleteTemplate,
-  exportConversationMarkdown,
   getConversationMemory,
   getTemplates,
-  listPlugins,
-  setPluginEnabled,
 } from '@/api'
 import { useConversationStore } from '@/stores/conversationStore'
 
 function builtinKeyFromId(id: string): string {
   return id.replace(/^builtin_/, '')
-}
-
-function pluginDisplayName(id: string, t: (k: string) => string): string {
-  if (id === 'com.proactiveai.export-markdown') return t('plugins.exportMarkdown')
-  if (id === 'com.proactiveai.snippet-transform') return t('plugins.snippetTransform')
-  if (id === 'com.proactiveai.memory-notify') return t('plugins.memoryNotify')
-  return id
 }
 
 /** 配置存 builtin id、旧 key或自定义名称 */
@@ -73,8 +62,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false)
   const [memoryItems, setMemoryItems] = useState<string[]>([])
   const [isMemoryLoading, setIsMemoryLoading] = useState(false)
-  const [plugins, setPlugins] = useState<PluginListEntry[]>([])
-  const [isExportingMd, setIsExportingMd] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const templateSelectValue = useMemo(
@@ -92,18 +79,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
       }
     }
     load()
-  }, [])
-
-  useEffect(() => {
-    const loadPlugins = async () => {
-      try {
-        const list = await listPlugins()
-        setPlugins(list)
-      } catch (err) {
-        console.error('Failed to load plugins:', err)
-      }
-    }
-    loadPlugins()
   }, [])
 
   useEffect(() => {
@@ -240,46 +215,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const handlePluginToggle = async (pluginId: string, enabled: boolean) => {
-    try {
-      await setPluginEnabled(pluginId, enabled)
-      setPlugins((prev) =>
-        prev.map((p) => (p.id === pluginId ? { ...p, enabled } : p))
-      )
-    } catch (err) {
-      console.error('Failed to set plugin enabled:', err)
-    }
-  }
-
-  const handleExportMarkdown = async () => {
-    if (!currentConversationId) {
-      setMessage({ type: 'error', text: t('plugins.needConv') })
-      return
-    }
-    setIsExportingMd(true)
-    setMessage(null)
-    try {
-      const res = await exportConversationMarkdown(currentConversationId)
-      if (res.ok && res.filename) {
-        setMessage({ type: 'success', text: t('plugins.exportDone', { filename: res.filename }) })
-      } else {
-        setMessage({
-          type: 'error',
-          text: t('plugins.exportFail', { reason: res.error || 'unknown' }),
-        })
-      }
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: t('plugins.exportFail', {
-          reason: err instanceof Error ? err.message : 'unknown',
-        }),
-      })
-    } finally {
-      setIsExportingMd(false)
-    }
-  }
-
   const handleClearMemory = async () => {
     if (!currentConversationId) return
     setIsMemoryLoading(true)
@@ -359,46 +294,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                   </SelectContent>
                 </Select>
               </div>
-            </section>
-
-            <section className="space-y-4 rounded-xl border border-[color:var(--app-border-strong)] bg-[var(--app-subtle-section)] p-4">
-              <div className="space-y-1">
-                <Label className="text-[var(--app-fg)]">{t('plugins.section')}</Label>
-                <p className="text-xs text-[var(--app-muted)]">{t('plugins.hint')}</p>
-              </div>
-              <div className="space-y-3">
-                {plugins.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between gap-4 rounded-lg border border-[color:var(--app-border-strong)] bg-[var(--app-input-bg)] px-3 py-2.5"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-[var(--app-fg)]">
-                        {pluginDisplayName(p.id, t)}
-                      </p>
-                      <p className="text-[11px] text-[var(--app-muted)]">
-                        {p.id} · v{p.version}
-                        {p.error ? ` · ${p.error}` : ''}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={p.enabled}
-                      onCheckedChange={(checked) => void handlePluginToggle(p.id, checked)}
-                      disabled={!!p.error}
-                    />
-                  </div>
-                ))}
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="w-full"
-                disabled={!currentConversationId || isExportingMd}
-                onClick={() => void handleExportMarkdown()}
-              >
-                {isExportingMd ? t('plugins.exporting') : t('plugins.export')}
-              </Button>
             </section>
 
             <section className="space-y-3 rounded-xl border border-[color:var(--app-border-strong)] bg-[var(--app-subtle-section)] p-4">

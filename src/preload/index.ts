@@ -58,13 +58,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: (conversationId: string): Promise<boolean> =>
       ipcRenderer.invoke('memory:clear', conversationId),
   },
-  plugins: {
-    list: (): Promise<any[]> => ipcRenderer.invoke('plugins:list'),
-    setEnabled: (pluginId: string, enabled: boolean): Promise<boolean> =>
-      ipcRenderer.invoke('plugins:setEnabled', pluginId, enabled),
-    exportConversation: (conversationId: string): Promise<any> =>
-      ipcRenderer.invoke('plugins:exportConversation', conversationId),
-  },
 })
 
 export type ElectronAPI = typeof window.electronAPI

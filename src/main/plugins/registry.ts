@@ -10,9 +10,7 @@ import {
   type PluginContext,
   type PluginPermission,
 } from './context'
-import { createSnippetTransformHooks } from './builtin/snippet-transform'
-import { createMemoryNotifyHooks } from './builtin/memory-notify'
-import * as exportMarkdown from './builtin/export-markdown'
+// NOTE: builtin plugins removed for now. Keep runtime skeleton only.
 
 const HOOK_TIMEOUT_MS = 500
 
@@ -24,29 +22,7 @@ interface BuiltinRecord {
   buildHooks: (ctx: PluginContext) => Partial<PluginHooks>
 }
 
-const BUILTINS: BuiltinRecord[] = [
-  {
-    id: 'com.proactiveai.export-markdown',
-    name: 'Export Markdown',
-    version: '1.0.0',
-    permissions: ['messages.read', 'fs.writesDownloads'],
-    buildHooks: () => ({}),
-  },
-  {
-    id: 'com.proactiveai.snippet-transform',
-    name: 'Snippet transform',
-    version: '1.0.0',
-    permissions: [],
-    buildHooks: (ctx) => createSnippetTransformHooks(ctx),
-  },
-  {
-    id: 'com.proactiveai.memory-notify',
-    name: 'Memory notify (log)',
-    version: '1.0.0',
-    permissions: [],
-    buildHooks: (ctx) => createMemoryNotifyHooks(ctx),
-  },
-]
+const BUILTINS: BuiltinRecord[] = []
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -175,13 +151,8 @@ export class PluginRegistry {
   async exportConversationMarkdown(
     conversationId: string
   ): Promise<PluginExportResult> {
-    const id = 'com.proactiveai.export-markdown'
-    if (!pluginPreferencesStore.isEnabled(id)) {
-      return { ok: false, error: 'plugin_disabled' }
-    }
-    const rec = this.records.get(id)
-    if (!rec) return { ok: false, error: 'not_found' }
-    return exportMarkdown.runExportConversationMarkdown(conversationId, rec.ctx)
+    void conversationId
+    return { ok: false, error: 'not_implemented' }
   }
 
   /** 将 history 中最后一条 user 的 content 替换为模型侧应看到的文本 */

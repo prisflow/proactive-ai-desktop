@@ -94,18 +94,7 @@ const zh = {
     errDeleteFailed: '删除失败，请稍后重试。',
     deleteTemplateAria: '删除模板「{{name}}」',
   },
-  plugins: {
-    section: '插件（本地）',
-    hint: '开关立即生效，无需点保存。导出文件在系统「下载」文件夹。',
-    export: '导出当前会话为 Markdown',
-    exporting: '导出中…',
-    exportDone: '已导出：{{filename}}',
-    exportFail: '导出失败（{{reason}}）',
-    needConv: '请先选择或进入一个对话。',
-    exportMarkdown: '导出 Markdown',
-    snippetTransform: '片段替换（\\snip:名称\\）',
-    memoryNotify: '记忆更新日志（控制台）',
-  },
+  // plugins: removed (market UI will return with avatar plugin)
   templates: {
     builtin: {
       default: { name: '默认助手', desc: '专业、友好的AI助手' },
@@ -210,18 +199,7 @@ const en = {
     errDeleteFailed: 'Could not delete. Try again.',
     deleteTemplateAria: 'Delete template "{{name}}"',
   },
-  plugins: {
-    section: 'Plugins (local)',
-    hint: 'Toggles apply immediately (no Save). Exports go to your Downloads folder.',
-    export: 'Export current chat as Markdown',
-    exporting: 'Exporting…',
-    exportDone: 'Exported: {{filename}}',
-    exportFail: 'Export failed ({{reason}})',
-    needConv: 'Select or open a conversation first.',
-    exportMarkdown: 'Export Markdown',
-    snippetTransform: 'Snippet transform (\\snip:name\\)',
-    memoryNotify: 'Memory update log (console)',
-  },
+  // plugins: removed (market UI will return with avatar plugin)
   templates: {
     builtin: {
       default: { name: 'Default assistant', desc: 'Professional, friendly assistant' },

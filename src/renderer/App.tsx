@@ -4,6 +4,7 @@ import ChatArea from './components/ChatArea'
 import InputArea from './components/InputArea'
 import Settings from './components/Settings'
 import WindowChrome from './components/WindowChrome'
+import AvatarWidget from './components/AvatarWidget'
 import { useConfigStore } from './stores/configStore'
 import { useConversationStore } from './stores/conversationStore'
 import { useSyncDocumentTheme } from './hooks/useSyncDocumentTheme'
@@ -32,6 +33,7 @@ export default function App() {
         <main className="relative flex min-h-0 flex-1 flex-col">
           <ChatArea />
           <InputArea />
+          <AvatarWidget />
         </main>
       </div>
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}

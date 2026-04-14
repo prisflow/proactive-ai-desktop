@@ -11,8 +11,6 @@ import {
   ChatMessage,
   AIResponse,
   PromptTemplate,
-  PluginListEntry,
-  PluginExportResult,
 } from '../shared/types'
 import { normalizeLocale, isDefaultConversationTitle, defaultConversationTitle } from '../shared/locale'
 import { getBuiltinRolePrompt, getFallbackRolePrompt } from '../shared/prompt-i18n'
@@ -348,22 +346,5 @@ function setupIPC() {
     }
   )
 
-  ipcMain.handle('plugins:list', async (): Promise<PluginListEntry[]> => {
-    return pluginRegistry.listPlugins()
-  })
-
-  ipcMain.handle(
-    'plugins:setEnabled',
-    async (event, pluginId: string, enabled: boolean): Promise<boolean> => {
-      pluginRegistry.setEnabled(pluginId, enabled)
-      return true
-    }
-  )
-
-  ipcMain.handle(
-    'plugins:exportConversation',
-    async (event, conversationId: string): Promise<PluginExportResult> => {
-      return pluginRegistry.exportConversationMarkdown(conversationId)
-    }
-  )
+  // Plugins IPC removed for now (will return with avatar plugin).
 }

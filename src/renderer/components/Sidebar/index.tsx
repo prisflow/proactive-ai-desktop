@@ -172,7 +172,12 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         </div>
 
-        <div className={cn('flex-1 px-3 py-2', isOpen ? 'overflow-y-auto' : 'overflow-hidden')}>
+        <div
+          className={cn(
+            'flex-1 px-3 py-2',
+            isOpen ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'
+          )}
+        >
           <div
             className={cn(
               'space-y-1 transition-[opacity,transform,max-height] duration-200 will-change-transform will-change-opacity',

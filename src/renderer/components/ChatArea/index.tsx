@@ -15,6 +15,7 @@ export default function ChatArea() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
+  const isAtBottomRef = useRef(true)
 
   const currentMessages = currentConversationId && messages[currentConversationId] 
     ? messages[currentConversationId] 
@@ -31,15 +32,17 @@ export default function ChatArea() {
     const threshold = 24
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
     setIsAtBottom(atBottom)
+    isAtBottomRef.current = atBottom
   }
 
   useEffect(() => {
     // 仅在“用户就在底部”时才自动滚动，避免无法向上翻历史
-    if (!isAtBottom) return
+    // 不要把 isAtBottom 放进依赖：用户手动滚到底部时会触发一次自动 scrollIntoView，造成跳动
+    if (!isAtBottomRef.current) return
     bottomRef.current?.scrollIntoView({ block: 'end' })
     // 有些情况下 scrollIntoView 后还未更新 scrollTop，这里补一次计算
     requestAnimationFrame(() => updateAtBottom())
-  }, [lastMessageId, isLoading, isAtBottom])
+  }, [lastMessageId, isLoading, currentConversationId])
 
   useEffect(() => {
     const load = async () => {
