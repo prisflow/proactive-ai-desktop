@@ -47,6 +47,15 @@ const zh = {
     memoryLoading: '加载中…',
     memoryEmpty: '暂无记忆条目。',
     memorySummary: '已显示前 {{shown}} 条（共 {{total}} 条）。',
+    pluginsSection: '插件',
+    pluginsHint:
+      '可以关：下面列出内置插件，每个一行开关。关掉后立刻生效（例如关掉「2D 虚拟形象」会隐藏右侧形象栏，并不再向模型注入表情说明）。偏好直接写本地，不用点「保存」。',
+    pluginsLoading: '加载插件列表…',
+    pluginsEmpty: '主进程返回的列表为空（不应出现）。请重启应用或查看控制台。',
+    pluginsBuiltin: '内置',
+    pluginsBridgeMissing:
+      '当前预加载里没有 plugins.list（多半是 dev 未重启）。请完全退出 Electron 窗口后再运行 npm run dev，列表就会出现。',
+    pluginsIpcFailed: '无法从主进程拉取插件列表。请打开开发者工具看控制台报错，或重启应用。',
     appearance: '外观',
     themePlaceholder: '主题',
     themeDark: '深色',
@@ -151,6 +160,15 @@ const en = {
     memoryLoading: 'Loading…',
     memoryEmpty: 'No memory items yet.',
     memorySummary: 'Showing first {{shown}} of {{total}} items.',
+    pluginsSection: 'Plugins',
+    pluginsHint:
+      'You can turn plugins off: each plugin has a toggle below. Changes apply immediately (e.g. disabling the avatar hides the right rail and stops injecting avatar instructions). Preferences are saved locally; no need to click Save.',
+    pluginsLoading: 'Loading plugins…',
+    pluginsEmpty: 'Main process returned an empty list (unexpected). Restart the app or check the console.',
+    pluginsBuiltin: 'Built-in',
+    pluginsBridgeMissing:
+      'Preload is missing plugins.list (common if dev wasn’t restarted). Fully quit Electron, then run npm run dev again.',
+    pluginsIpcFailed: 'Could not load the plugin list from the main process. Check DevTools console or restart.',
     appearance: 'Appearance',
     themePlaceholder: 'Theme',
     themeDark: 'Dark',

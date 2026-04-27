@@ -5,17 +5,20 @@ export type PluginPermission =
   | 'fs.writesDownloads'
   | 'clipboard.write'
   | 'config.read'
+  | 'ui.dispatch'
 
 export interface PluginContext {
   getMessages?: (conversationId: string) => ChatMessage[]
   writeToDownloads?: (filename: string, content: string) => Promise<void>
   getPublicSettings?: () => Omit<GlobalSettings, 'apiKey'> & { apiKey?: undefined }
+  dispatchToRenderer?: (message: import('../../shared/types').PluginDispatchMessage) => void
 }
 
 export interface PluginContextDeps {
   getMessages: (conversationId: string) => ChatMessage[]
   writeToDownloads: (filename: string, content: string) => Promise<void>
   getPublicSettings: () => Omit<GlobalSettings, 'apiKey'> & { apiKey?: undefined }
+  dispatchToRenderer: (message: import('../../shared/types').PluginDispatchMessage) => void
 }
 
 export function createPluginContext(
@@ -32,6 +35,9 @@ export function createPluginContext(
   }
   if (set.has('config.read')) {
     ctx.getPublicSettings = deps.getPublicSettings
+  }
+  if (set.has('ui.dispatch')) {
+    ctx.dispatchToRenderer = deps.dispatchToRenderer
   }
   return ctx
 }

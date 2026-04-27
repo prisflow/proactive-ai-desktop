@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "packId": "com.proactiveai.demo",
+  "version": "1.0.0",
+  "name": "校园像素小人（内置演示）",
+  "author": "项目资源",
+  "license": "MIT",
+  "idle": {
+    "kind": "sheet",
+    "src": "idle.sheet.png",
+    "frameW": 366,
+    "frameH": 352,
+    "frames": 8,
+    "fps": 8
+  },
+  "atlas": {
+    "src": "atlas.png",
+    "cols": 8,
+    "rows": 4,
+    "tileW": 182,
+    "tileH": 180
+  },
+  "expressions": {
+    "idle": { "row": 0, "col": 0 },
+    "happy": { "row": 0, "col": 1 },
+    "surprised": { "row": 0, "col": 3 },
+    "angry": { "row": 0, "col": 4 },
+    "sad": { "row": 0, "col": 5 },
+    "confused": { "row": 1, "col": 6 },
+    "sleepy": { "row": 1, "col": 1 },
+    "thinking": { "row": 1, "col": 3 }
+  }
+}

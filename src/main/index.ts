@@ -15,6 +15,15 @@ import {
 import { normalizeLocale, isDefaultConversationTitle, defaultConversationTitle } from '../shared/locale'
 import { getBuiltinRolePrompt, getFallbackRolePrompt } from '../shared/prompt-i18n'
 import { pluginRegistry } from './plugins/registry'
+import {
+  ensurePAvatarPacksDir,
+  getActivePAvatarPackResolved,
+  registerPAvatarProtocol,
+  scanPAvatarPacks,
+  syncBundledPavatarPackIfNeeded,
+} from './pavatar/pack-store'
+import { pluginPreferencesStore } from './plugin-preferences-store'
+import type { PAvatarPackResolved, PluginListEntry } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let chatCore: ChatCore | null = null
@@ -65,16 +74,23 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
     app.setName(WINDOW_TITLE)
   }
   Menu.setApplicationMenu(null)
   templateStore.init()
-  pluginRegistry.initBuiltins()
+  registerPAvatarProtocol()
+  await ensurePAvatarPacksDir()
+  await syncBundledPavatarPackIfNeeded()
   chatCore = new ChatCore()
-  createWindow()
+  pluginRegistry.setRendererDispatcher((message) => {
+    mainWindow?.webContents.send('plugin:dispatch', message)
+  })
+  pluginRegistry.initBuiltins()
+  // Register IPC before any window loads the renderer (avoids invoke races in dev).
   setupIPC()
+  createWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -104,6 +120,44 @@ function setupIPC() {
   ipcMain.handle('window:close', () => {
     mainWindow?.close()
   })
+
+  // pavatar packs
+  ipcMain.handle('pavatar:listPacks', async (): Promise<PAvatarPackResolved[]> => {
+    return await scanPAvatarPacks()
+  })
+  ipcMain.handle('pavatar:getActivePack', async (): Promise<PAvatarPackResolved | null> => {
+    return await getActivePAvatarPackResolved()
+  })
+  ipcMain.handle(
+    'pavatar:setActivePack',
+    async (_ev, packId: string, version: string): Promise<boolean> => {
+      const packs = await scanPAvatarPacks()
+      const hit = packs.find((p) => p.packId === packId && p.version === version)
+      if (!hit) return false
+      const cur = pluginPreferencesStore.getPluginConfig('com.proactiveai.pavatar')
+      pluginPreferencesStore.setPluginConfig('com.proactiveai.pavatar', {
+        ...cur,
+        activePackId: packId,
+        activePackVersion: version,
+      })
+      mainWindow?.webContents.send('pavatar:activePackChanged', { packId, version })
+      return true
+    }
+  )
+
+  ipcMain.handle('plugins:list', async (): Promise<PluginListEntry[]> => {
+    return pluginRegistry.listPlugins()
+  })
+  ipcMain.handle(
+    'plugins:setEnabled',
+    async (_ev, pluginId: string, enabled: boolean): Promise<boolean> => {
+      const known = pluginRegistry.listPlugins().some((p) => p.id === pluginId)
+      if (!known) return false
+      pluginRegistry.setEnabled(pluginId, enabled)
+      mainWindow?.webContents.send('plugins:preferencesChanged')
+      return true
+    }
+  )
 
   ipcMain.handle(
     'chat:send',
@@ -346,5 +400,4 @@ function setupIPC() {
     }
   )
 
-  // Plugins IPC removed for now (will return with avatar plugin).
 }

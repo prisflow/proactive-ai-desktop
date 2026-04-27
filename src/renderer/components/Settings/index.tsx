@@ -21,7 +21,10 @@ import {
   deleteTemplate,
   getConversationMemory,
   getTemplates,
+  listPlugins,
+  setPluginEnabled,
 } from '@/api'
+import type { PluginListEntry } from '@shared'
 import { useConversationStore } from '@/stores/conversationStore'
 
 function builtinKeyFromId(id: string): string {
@@ -62,6 +65,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false)
   const [memoryItems, setMemoryItems] = useState<string[]>([])
   const [isMemoryLoading, setIsMemoryLoading] = useState(false)
+  const [plugins, setPlugins] = useState<PluginListEntry[]>([])
+  const [pluginsLoading, setPluginsLoading] = useState(true)
+  const [pluginsError, setPluginsError] = useState<'bridge' | 'ipc' | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const templateSelectValue = useMemo(
@@ -80,6 +86,40 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     }
     load()
   }, [])
+
+  useEffect(() => {
+    const loadPlugins = async () => {
+      setPluginsLoading(true)
+      setPluginsError(null)
+      try {
+        const list = await listPlugins()
+        setPlugins(list)
+      } catch (err) {
+        console.error('Failed to load plugins:', err)
+        setPlugins([])
+        const msg = err instanceof Error ? err.message : ''
+        if (msg.includes('PRELOAD_PLUGINS') || msg.includes('LIST_MISSING')) {
+          setPluginsError('bridge')
+        } else {
+          setPluginsError('ipc')
+        }
+      } finally {
+        setPluginsLoading(false)
+      }
+    }
+    void loadPlugins()
+  }, [])
+
+  const handlePluginToggle = async (pluginId: string, enabled: boolean) => {
+    try {
+      const ok = await setPluginEnabled(pluginId, enabled)
+      if (ok) {
+        setPlugins((prev) => prev.map((p) => (p.id === pluginId ? { ...p, enabled } : p)))
+      }
+    } catch (err) {
+      console.error('Failed to set plugin enabled:', err)
+    }
+  }
 
   useEffect(() => {
     const loadMemory = async () => {
@@ -332,6 +372,56 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                     </p>
                   )}
                 </div>
+              )}
+            </section>
+
+            <section className="space-y-3 rounded-xl border border-[color:var(--app-border-strong)] bg-[var(--app-subtle-section)] p-4">
+              <div className="space-y-1">
+                <Label className="text-[var(--app-fg)]">{t('settings.pluginsSection')}</Label>
+                <p className="text-xs leading-relaxed text-[var(--app-muted)]">{t('settings.pluginsHint')}</p>
+              </div>
+              {pluginsError === 'bridge' && (
+                <p className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  {t('settings.pluginsBridgeMissing')}
+                </p>
+              )}
+              {pluginsError === 'ipc' && !pluginsLoading && (
+                <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                  {t('settings.pluginsIpcFailed')}
+                </p>
+              )}
+              {pluginsLoading ? (
+                <p className="text-xs text-[var(--app-muted)]">{t('settings.pluginsLoading')}</p>
+              ) : plugins.length === 0 && !pluginsError ? (
+                <p className="text-xs text-[var(--app-muted)]">{t('settings.pluginsEmpty')}</p>
+              ) : plugins.length === 0 ? null : (
+                <ul className="space-y-3">
+                  {plugins.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-[color:var(--app-border-strong)] bg-[var(--app-input-bg)] px-3 py-2.5"
+                    >
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-[var(--app-fg)]">{p.name}</span>
+                          {p.builtin && (
+                            <span className="rounded-md bg-[var(--app-hover-strong)] px-1.5 py-0.5 text-[10px] text-[var(--app-muted)]">
+                              {t('settings.pluginsBuiltin')}
+                            </span>
+                          )}
+                        </div>
+                        <p className="truncate text-[11px] text-[var(--app-muted)]">
+                          {p.id} · v{p.version}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={p.enabled}
+                        onCheckedChange={(v) => handlePluginToggle(p.id, v)}
+                        aria-label={`${p.name} enabled`}
+                      />
+                    </li>
+                  ))}
+                </ul>
               )}
             </section>
 

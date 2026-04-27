@@ -2,6 +2,32 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  plugins: {
+    onDispatch: (cb: (message: any) => void) => {
+      const handler = (_ev: any, message: any) => cb(message)
+      ipcRenderer.on('plugin:dispatch', handler)
+      return () => ipcRenderer.removeListener('plugin:dispatch', handler)
+    },
+    list: (): Promise<any[]> => ipcRenderer.invoke('plugins:list'),
+    setEnabled: (pluginId: string, enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('plugins:setEnabled', pluginId, enabled),
+    onPreferencesChanged: (cb: () => void) => {
+      const handler = () => cb()
+      ipcRenderer.on('plugins:preferencesChanged', handler)
+      return () => ipcRenderer.removeListener('plugins:preferencesChanged', handler)
+    },
+  },
+  pavatar: {
+    listPacks: (): Promise<any[]> => ipcRenderer.invoke('pavatar:listPacks'),
+    getActivePack: (): Promise<any | null> => ipcRenderer.invoke('pavatar:getActivePack'),
+    setActivePack: (packId: string, version: string): Promise<boolean> =>
+      ipcRenderer.invoke('pavatar:setActivePack', packId, version),
+    onActivePackChanged: (cb: (x: { packId: string; version: string }) => void) => {
+      const handler = (_ev: any, payload: any) => cb(payload)
+      ipcRenderer.on('pavatar:activePackChanged', handler)
+      return () => ipcRenderer.removeListener('pavatar:activePackChanged', handler)
+    },
+  },
   window: {
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
     maximizeToggle: (): Promise<void> => ipcRenderer.invoke('window:maximize-toggle'),

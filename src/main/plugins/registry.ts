@@ -10,6 +10,8 @@ import {
   type PluginContext,
   type PluginPermission,
 } from './context'
+import { pavatarBuiltin } from './builtin/pavatar.ts'
+import { pavatarMainLog } from '../pavatar/debug-log'
 // NOTE: builtin plugins removed for now. Keep runtime skeleton only.
 
 const HOOK_TIMEOUT_MS = 500
@@ -22,7 +24,7 @@ interface BuiltinRecord {
   buildHooks: (ctx: PluginContext) => Partial<PluginHooks>
 }
 
-const BUILTINS: BuiltinRecord[] = []
+const BUILTINS: BuiltinRecord[] = [pavatarBuiltin]
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -41,10 +43,15 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 export class PluginRegistry {
+  private dispatchToRenderer: ((message: import('../../shared/types').PluginDispatchMessage) => void) | null = null
   private records: Map<
     string,
     { meta: BuiltinRecord; ctx: PluginContext; hooks: Partial<PluginHooks> }
   > = new Map()
+
+  setRendererDispatcher(fn: (message: import('../../shared/types').PluginDispatchMessage) => void): void {
+    this.dispatchToRenderer = fn
+  }
 
   initBuiltins(): void {
     this.records.clear()
@@ -61,6 +68,13 @@ export class PluginRegistry {
         await fs.writeFile(full, content, 'utf8')
       },
       getPublicSettings: getPublic,
+      dispatchToRenderer: (message: import('../../shared/types').PluginDispatchMessage) => {
+        try {
+          this.dispatchToRenderer?.(message)
+        } catch (e) {
+          console.error('[plugin] dispatchToRenderer', e)
+        }
+      },
     }
 
     for (const meta of BUILTINS) {
@@ -68,6 +82,12 @@ export class PluginRegistry {
       const hooks = meta.buildHooks(ctx)
       this.records.set(meta.id, { meta, ctx, hooks })
     }
+    const prefs = pluginPreferencesStore.get()
+    pavatarMainLog('PluginRegistry.initBuiltins', {
+      builtinIds: BUILTINS.map((b) => b.id),
+      enabledFromStore: prefs.enabled,
+      pavatarWillRunHooks: prefs.enabled.includes('com.proactiveai.pavatar'),
+    })
   }
 
   listPlugins(): PluginListEntry[] {
@@ -146,6 +166,33 @@ export class PluginRegistry {
         console.error(`[plugin ${id}] onMemoryUpdate`, e)
       }
     }
+  }
+
+  /**
+   * system prompt 构建钩子（追加文本）。用于“提示词注入”的标准扩展点。
+   * 规则：
+   * - 按 enabledSortedIds 顺序依次追加（稳定、可预期）
+   * - hook 返回 string 则作为一个段落追加（自动空行分隔）
+   */
+  async runSystemPromptBuild(input: {
+    systemPrompt: string
+    locale?: 'zh-CN' | 'en-US'
+    conversationId?: string
+  }): Promise<string> {
+    let out = input.systemPrompt || ''
+    for (const id of this.enabledSortedIds()) {
+      const fn = this.records.get(id)?.hooks.onSystemPromptBuild
+      if (!fn) continue
+      try {
+        const extra = await withTimeout(Promise.resolve(fn(input)), HOOK_TIMEOUT_MS)
+        if (typeof extra === 'string' && extra.trim().length > 0) {
+          out = `${out}\n\n${extra.trim()}`
+        }
+      } catch (e) {
+        console.error(`[plugin ${id}] onSystemPromptBuild`, e)
+      }
+    }
+    return out
   }
 
   async exportConversationMarkdown(

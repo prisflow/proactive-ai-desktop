@@ -7,6 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
+    "gen:pavatar-demo": "node scripts/generate-builtin-pavatar-demo.cjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist": "npm run build && electron-builder",
@@ -29,14 +30,19 @@
     "clsx": "^2.1.1",
     "electron-store": "^11.0.2",
     "framer-motion": "^12.34.4",
+    "highlight.js": "^11.11.1",
     "i18next": "^26.0.4",
     "immer": "^11.1.4",
     "lowdb": "^7.0.1",
     "lucide-react": "^0.468.0",
+    "mermaid": "^11.14.0",
     "openai": "^6.25.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-i18next": "^17.0.2",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.5.0",
     "zustand": "^5.0.11"
   },
@@ -52,6 +58,7 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
     "png-to-ico": "^3.0.1",
+    "pngjs": "^7.0.0",
     "postcss": "^8.5.8",
     "rcedit": "^5.0.2",
     "tailwindcss": "^3.4.19",
@@ -68,6 +75,12 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/pavatar-bundled",
+        "to": "pavatar-bundled"
+      }
     ],
     "win": {
       "icon": "build/icon.png",

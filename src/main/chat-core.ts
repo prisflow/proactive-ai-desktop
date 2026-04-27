@@ -19,6 +19,8 @@ import {
   getImportantInfoSystemPrefix,
   modelEmptyResponseMessage,
 } from '../shared/prompt-i18n'
+import { pluginRegistry } from './plugins/registry'
+import { pavatarMainLog } from './pavatar/debug-log'
 
 export class ChatCore {
   /**
@@ -47,7 +49,22 @@ export class ChatCore {
 
     const locale = normalizeLocale(globalSettings.locale)
     const finalRolePrompt = rolePrompt || getFallbackRolePrompt(locale)
-    const systemPrompt = buildSystemPrompt(finalRolePrompt, maxTriggers, locale)
+    let systemPrompt = buildSystemPrompt(finalRolePrompt, maxTriggers, locale)
+
+    // 插件 system prompt hook（追加文本）
+    const lenBeforePlugins = systemPrompt.length
+    systemPrompt = await pluginRegistry.runSystemPromptBuild({
+      systemPrompt,
+      locale,
+    })
+    pavatarMainLog('ChatCore.sendMessage after runSystemPromptBuild', {
+      systemPromptCharsBefore: lenBeforePlugins,
+      systemPromptCharsAfter: systemPrompt.length,
+      deltaChars: systemPrompt.length - lenBeforePlugins,
+      hasPavatarInstructions:
+        systemPrompt.includes('## 虚拟形象表情协议') ||
+        systemPrompt.includes('## Avatar expression protocol'),
+    })
 
     const settings = {
       recentMessagesCount: conversationSettings?.recentMessagesCount || 3,

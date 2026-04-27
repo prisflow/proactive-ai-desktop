@@ -83,6 +83,15 @@ export interface PluginHooks {
   onMessageReceive?: (reply: string) => string | Promise<string>
   onTrigger?: (trigger: Trigger) => void | Promise<void>
   onMemoryUpdate?: (importantInfo: string[]) => void | Promise<void>
+  /**
+   * system prompt 构建钩子：返回要追加到 system prompt 的文本（空/undefined 表示不修改）。
+   * 这是“提示词注入”的标准扩展点（插件与未来的 RAG 都在这里拼接）。
+   */
+  onSystemPromptBuild?: (input: {
+    systemPrompt: string
+    locale?: 'zh-CN' | 'en-US'
+    conversationId?: string
+  }) => string | void | Promise<string | void>
   onConfigChange?: (config: Record<string, any>) => void | Promise<void>
   onInit?: () => void | Promise<void>
   onDestroy?: () => void | Promise<void>
@@ -95,6 +104,57 @@ export interface Plugin {
   author?: string
   hooks: PluginHooks
   config?: Record<string, any>
+}
+
+export type PluginDispatchMessage =
+  | { v: 1; pluginId: 'com.proactiveai.pavatar'; type: 'AVATAR_SET_MOOD'; mood: string; durationMs?: number }
+  | { v: 1; pluginId: 'com.proactiveai.pavatar'; type: 'AVATAR_PLAY_EMOTE'; name: string; durationMs?: number }
+
+export type PAvatarPackManifestV1 = {
+  v: 1
+  packId: string
+  version: string
+  name: string
+  author?: string
+  license?: string
+  /**
+   * 表情 id → atlas 网格坐标（0-based）。
+   * 若省略，则渲染层 worker 使用内置默认映射（兼容旧 pack）。
+   */
+  expressions?: Record<string, { row: number; col: number }>
+  idle: {
+    kind: 'sheet'
+    /** relative path under pack dir */
+    src: string
+    frameW: number
+    frameH: number
+    frames: number
+    fps: number
+  }
+  atlas: {
+    /** relative path under pack dir */
+    src: string
+    cols: number
+    rows: number
+    tileW: number
+    tileH: number
+  }
+}
+
+export type PAvatarPackResolved = {
+  packId: string
+  version: string
+  name: string
+  author?: string
+  license?: string
+  expressions?: Record<string, { row: number; col: number }>
+  /** absolute directory path on disk (main process only) */
+  dir?: string
+  /** URLs accessible from renderer (pavatar://...) */
+  idleUrl: string
+  atlasUrl: string
+  idle: PAvatarPackManifestV1['idle']
+  atlas: PAvatarPackManifestV1['atlas']
 }
 
 /** 设置页 / IPC：插件列表项（一期仅内置） */

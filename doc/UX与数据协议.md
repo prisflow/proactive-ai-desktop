@@ -186,6 +186,7 @@ Electron userData/
 | 字段               | 类型                                                            | 说明      |
 | ---------------- | ------------------------------------------------------------- | ------- |
 | onMessageSend    | (message: string) => string \| Promise\<string> (可选)          | 消息发送前钩子 |
+| onSystemPromptBuild | (input: { systemPrompt, locale?, conversationId? }) => string \| void \| Promise\<…> (可选) | 构造发给模型的 system prompt 时追加片段（如像素小人协议） |
 | onMessageReceive | (reply: string) => string \| Promise\<string> (可选)            | 消息接收后钩子 |
 | onTrigger        | (trigger: Trigger) => void \| Promise\<void> (可选)             | 触发点钩子   |
 | onMemoryUpdate   | (importantInfo: string\[]) => void \| Promise\<void> (可选)     | 记忆更新钩子  |
@@ -204,7 +205,7 @@ Electron userData/
 | hooks       | PluginHooks               | 插件钩子 |
 | config      | Record\<string, any> (可选) | 插件配置 |
 
-> **实现状态**：`Plugin` / `PluginHooks` 在 `shared/types` 中为协议定义；**无 PluginLoader、无插件 IPC、无市场 UI**。落地路线与分期见 **`doc/插件市场.md`**（一期：主进程加载 + `chat:send` 挂载钩子 + 3 个官方离线插件）。
+> **实现状态**：`Plugin` / `PluginHooks` 在 `shared/types` 中为协议定义；**主进程已加载内置 `PluginRegistry`**，IPC **`plugins:list`** / **`plugins:setEnabled`** 与设置页插件区 **已接**。当前内置插件 **仅 `com.proactiveai.pavatar`**（详见 **`doc/插件市场.md`**、**`doc/像素小人插件.md`**）。远程市场 / 动态 `.paplugin` **未做**。
 
 ***
 

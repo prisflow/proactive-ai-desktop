@@ -5,12 +5,25 @@ import {
   GlobalSettings,
   PromptTemplate,
   Conversation,
+  PluginListEntry,
 } from '@shared'
 
 declare global {
   interface Window {
     electronAPI: {
       platform: NodeJS.Platform
+      plugins: {
+        onDispatch: (cb: (message: import('@shared').PluginDispatchMessage) => void) => () => void
+        list: () => Promise<PluginListEntry[]>
+        setEnabled: (pluginId: string, enabled: boolean) => Promise<boolean>
+        onPreferencesChanged: (cb: () => void) => () => void
+      }
+      pavatar: {
+        listPacks: () => Promise<import('@shared').PAvatarPackResolved[]>
+        getActivePack: () => Promise<import('@shared').PAvatarPackResolved | null>
+        setActivePack: (packId: string, version: string) => Promise<boolean>
+        onActivePackChanged: (cb: (x: { packId: string; version: string }) => void) => () => void
+      }
       window: {
         minimize: () => Promise<void>
         maximizeToggle: () => Promise<void>
@@ -136,5 +149,25 @@ export async function getConversationMemory(conversationId: string): Promise<str
 
 export async function clearConversationMemory(conversationId: string): Promise<boolean> {
   return window.electronAPI.memory.clear(conversationId)
+}
+
+export async function listPlugins(): Promise<PluginListEntry[]> {
+  const listFn = window.electronAPI?.plugins?.list
+  if (typeof listFn !== 'function') {
+    throw new Error('PRELOAD_PLUGINS_LIST_MISSING')
+  }
+  const out = await listFn()
+  if (!Array.isArray(out)) {
+    throw new Error('PLUGINS_LIST_INVALID')
+  }
+  return out
+}
+
+export async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<boolean> {
+  const fn = window.electronAPI?.plugins?.setEnabled
+  if (typeof fn !== 'function') {
+    throw new Error('PRELOAD_PLUGINS_SET_ENABLED_MISSING')
+  }
+  return fn(pluginId, enabled)
 }
 

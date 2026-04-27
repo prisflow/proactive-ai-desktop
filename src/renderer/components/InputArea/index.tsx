@@ -127,7 +127,7 @@ export default function InputArea() {
     nextTriggerAtMs ? Math.max(0, Math.ceil((nextTriggerAtMs - nowMs) / 1000)) : null
 
   return (
-    <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-[var(--app-gradient-input-stop)] via-[var(--app-gradient-input-stop)] to-transparent p-4">
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[var(--app-gradient-input-stop)] via-[var(--app-gradient-input-stop)] to-transparent px-4 pb-4 pt-2 md:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         {nextInSeconds !== null && nextInSeconds > 0 && (
           <div className="mb-2 px-4">

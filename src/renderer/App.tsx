@@ -30,9 +30,11 @@ export default function App() {
       <WindowChrome />
       <div className="flex min-h-0 flex-1">
         <Sidebar onOpenSettings={() => setShowSettings(true)} />
-        <main className="relative flex min-h-0 flex-1 flex-col">
-          <ChatArea />
-          <InputArea />
+        <main className="flex min-h-0 min-w-0 flex-1">
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <ChatArea />
+            <InputArea />
+          </div>
           <AvatarWidget />
         </main>
       </div>
