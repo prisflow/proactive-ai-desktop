@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, clipboard } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
 import type {
@@ -36,6 +36,7 @@ const KNOWN_PERMISSIONS = new Set<PluginPermission>([
   'config.read',
   'ui.dispatch',
   'assets.readActive',
+  'agent.access',
 ])
 
 function filterPermissions(fromManifest: string[]): PluginPermission[] {
@@ -122,6 +123,10 @@ export class PluginRegistry {
   async initPlugins(): Promise<void> {
     for (const r of this.records.values()) {
       try {
+        // 生命周期钩子：onDestroy
+        if (!r.execBlocked && r.hooks.onDestroy) {
+          await withTimeout(Promise.resolve(r.hooks.onDestroy()), HOOK_TIMEOUT_MS)
+        }
         await r.dispose?.()
       } catch (e) {
         console.error('[plugin] dispose', r.manifest.id, e)
@@ -143,6 +148,9 @@ export class PluginRegistry {
         const dir = app.getPath('downloads')
         const full = path.join(dir, filename)
         await fs.writeFile(full, content, 'utf8')
+      },
+      clipboardWrite: async (text: string) => {
+        clipboard.writeText(text)
       },
       getPublicSettings: getPublic,
       dispatchToRenderer: (message: PluginDispatchMessage) => {
@@ -216,6 +224,15 @@ export class PluginRegistry {
         execBlocked,
       }
       this.records.set(manifest.id, rec)
+
+      // 生命周期钩子：onInit
+      if (!execBlocked && hooks.onInit) {
+        try {
+          await withTimeout(Promise.resolve(hooks.onInit()), HOOK_TIMEOUT_MS)
+        } catch (e) {
+          console.error(`[plugin ${manifest.id}] onInit`, e)
+        }
+      }
 
       if (toolRegistrationAllowed && tools.length > 0) {
         for (const t of tools) {
@@ -402,6 +419,7 @@ export class PluginRegistry {
     return out
   }
 
+  // TODO: implement markdown export for conversations
   async exportConversationMarkdown(
     conversationId: string
   ): Promise<PluginExportResult> {

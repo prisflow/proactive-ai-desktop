@@ -21,7 +21,7 @@ import { buildSystemPrompt } from '../../shared/config'
 /** 主智能体决策后的结构化动作 */
 export type OrchestratorAction =
   | { type: 'memory_sync'; memory: string[]; nextAction?: OrchestratorAction }
-  | { type: 'tool_call'; toolCalls: ToolCall[]; conversationId: string }
+  | { type: 'tool_call'; toolCalls: ToolCall[]; conversationId: string; userMessage?: string; history?: ChatMessage[]; importantInfo?: string[]; rolePrompt?: string; conversationSettings?: ConversationSettings }
   | { type: 'delegate'; conversationId: string; userMessage: string; history: ChatMessage[]; importantInfo: string[]; rolePrompt: string; conversationSettings: ConversationSettings | undefined; globalSettings: GlobalSettings; isProactive?: boolean; proactiveCooldownUntil?: number }
   | { type: 'done' }
 
@@ -104,9 +104,9 @@ export async function pipelineOrchestratorThink(
     const schemas = pluginRegistry.toolRuntime.getToolSchemas()
     if (schemas.length > 0) {
       const thinkResult = await pipelineAgentThink(deps, ctx)
-      if (thinkResult.toolCalls && thinkResult.toolCalls.length > 0) {
-        return traceEnd(deps, thinkRunId, { type: 'tool_call', toolCalls: thinkResult.toolCalls, conversationId: ctx.conversationId })
-      }
+    if (thinkResult.toolCalls && thinkResult.toolCalls.length > 0) {
+      return traceEnd(deps, thinkRunId, { type: 'tool_call', toolCalls: thinkResult.toolCalls, conversationId: ctx.conversationId, userMessage: ctx.content, history: ctx.historyForModel, importantInfo: ctx.importantInfo, rolePrompt: ctx.rolePrompt, conversationSettings: ctx.conversationSettings })
+    }
     }
 
     // 直接委托子智能体回复
@@ -313,7 +313,7 @@ export async function pipelineExecuteToolCall(
 
   const results = await pipelineCallTools(deps, action.toolCalls, cid)
 
-  // 工具执行完成，入队 TOOL_RESULT 事件
+  // 工具执行完成，入队 TOOL_RESULT 事件（携带原始上下文供后续 delegate 使用）
   await deps.bus.enqueue(
     createAgentEvent({
       type: CORE_EVENT.TOOL_RESULT,
@@ -322,6 +322,11 @@ export async function pipelineExecuteToolCall(
       payload: {
         toolResults: results,
         conversationId: cid,
+        userMessage: action.userMessage ?? '',
+        history: action.history ?? [],
+        importantInfo: action.importantInfo ?? [],
+        rolePrompt: action.rolePrompt ?? '',
+        conversationSettings: action.conversationSettings,
       },
     })
   )
@@ -345,6 +350,14 @@ export async function pipelineExecuteDelegation(
     subagentSystemPrompt: action.rolePrompt || '',
     userTask: action.userMessage,
     globalSettings: action.globalSettings,
+    isProactive: action.isProactive,
+    proactiveCooldownUntil: action.proactiveCooldownUntil,
+    importantInfo: action.importantInfo,
+  })
+
+  // 记录当前活跃的子智能体 runId
+  await deps.worldStore.patch(action.conversationId, {
+    activeSubagentRunId: runId,
   })
 }
 

@@ -1,6 +1,5 @@
 import {
   ChatMessage,
-  UserConfig,
   GlobalSettings,
   PromptTemplate,
   Conversation,

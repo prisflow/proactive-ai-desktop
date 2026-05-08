@@ -5,6 +5,7 @@ import type { AvatarEngineIn, AvatarEngineOut } from '@/avatar/engine.worker'
 import type { AssetPackResolved, PluginDispatchMessage } from '@shared'
 import { pluginAssetsRendererLog } from '@/lib/plugin-assets-debug'
 import { getPluginResolvedAssetPack } from '@/api'
+import { useTranslation } from 'react-i18next'
 
 type EngineState = {
   ready: boolean
@@ -49,6 +50,7 @@ function formatHistoryTime(ts: number): string {
 }
 
 export default function AvatarWidget({ pluginId }: { pluginId: string }) {
+  const { t } = useTranslation()
   const workerRef = useRef<Worker | null>(null)
   const rafRef = useRef<number | null>(null)
   const [state, setState] = useState<EngineState>(DEFAULT_STATE)
@@ -437,19 +439,9 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
         )}
         aria-label="avatar-pack-missing"
       >
-        <p className="text-xs font-medium text-[var(--app-fg)]">形象资源未就绪</p>
+        <p className="text-xs font-medium text-[var(--app-fg)]">{t('avatar.packMissing')}</p>
         <p className="mt-2 text-[11px] leading-relaxed text-[var(--app-muted)]">
-          插件{' '}
-          <code className="rounded bg-[var(--app-input-bg)] px-1">{pluginId}</code>{' '}
-          需要自备形象资源包：放在用户目录{' '}
-          <code className="rounded bg-[var(--app-input-bg)] px-1">plugin-asset-packs</code>{' '}
-          下的{' '}
-          <code className="rounded bg-[var(--app-input-bg)] px-1">&lt;packId&gt;/&lt;version&gt;/</code>{' '}
-          目录中（路径中的 packId 须与 manifest 一致），保证{' '}
-          <code className="rounded bg-[var(--app-input-bg)] px-1">manifest.json</code>{' '}
-          里的 <code className="rounded bg-[var(--app-input-bg)] px-1">packId</code> 等于该插件 id，或以{' '}
-          <code className="rounded bg-[var(--app-input-bg)] px-1">{pluginId}.</code>
-          为前缀。扫描阶段只校验 manifest 结构是否符合宿主约定；具体资源能否加载，由渲染侧按 manifest 路径尝试读取（缺失时面板内会报错）。
+          {t('avatar.packMissingDesc', { pluginId })}
         </p>
       </aside>
     )
@@ -472,15 +464,15 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
             'border-0 bg-transparent'
           )}
           aria-expanded={false}
-          aria-label="展开形象栏"
-          title="展开形象栏"
+          aria-label={t('avatar.expandRail')}
+          title={t('avatar.expandRail')}
         >
           <ChevronLeft className="h-4 w-4 shrink-0 opacity-80" />
           <span
             className="text-[10px] font-medium leading-tight text-[var(--app-fg)] opacity-70"
             style={{ writingMode: 'vertical-rl' }}
           >
-            形象
+            {t('avatar.avatar')}
           </span>
         </button>
       </div>
@@ -503,7 +495,7 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
         title={state.error ? state.error : `avatar: ${state.animation}`}
       >
         <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--app-muted)]">
-          <span className="truncate font-medium text-[var(--app-fg)]">形象</span>
+          <span className="truncate font-medium text-[var(--app-fg)]">{t('avatar.avatar')}</span>
           <div className="flex shrink-0 items-center gap-1">
             <span className="tabular-nums">f{state.frame}</span>
             <button
@@ -514,8 +506,8 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
                 'hover:bg-black/5 hover:text-[var(--app-fg)] dark:hover:bg-white/10'
               )}
               aria-expanded={true}
-              aria-label="收起形象栏"
-              title="收起形象栏"
+              aria-label={t('avatar.collapseRail')}
+              title={t('avatar.collapseRail')}
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -523,7 +515,7 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
         </div>
 
         <label className="flex items-center gap-2 text-[10px] text-[var(--app-muted)]">
-          <span className="shrink-0">缩放</span>
+          <span className="shrink-0">{t('avatar.zoom')}</span>
           <input
             type="range"
             min={DISPLAY_SCALE_MIN}
@@ -552,11 +544,11 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
 
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-2">
         <div className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--app-muted)]">
-          表情记录
+          {t('avatar.moodHistory')}
         </div>
         <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-0.5 text-[11px]">
           {moodHistory.length === 0 ? (
-            <li className="text-[var(--app-muted)]">助手在回复末尾带 [[AVATAR:…]] 时会记在这里</li>
+            <li className="text-[var(--app-muted)]">{t('avatar.moodHistoryEmpty')}</li>
           ) : (
             moodHistory.map((row) => (
               <li
@@ -573,7 +565,7 @@ export default function AvatarWidget({ pluginId }: { pluginId: string }) {
                   </time>
                 </div>
                 <div className="text-[10px] text-[var(--app-muted)]">
-                  {row.kind === 'mood' ? '表情' : '动作'}
+                  {row.kind === 'mood' ? t('avatar.mood') : t('avatar.emote')}
                 </div>
               </li>
             ))

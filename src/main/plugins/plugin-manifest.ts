@@ -36,6 +36,9 @@ export function parsePluginManifestJson(
   if (typeof m.id !== 'string' || !m.id.trim()) {
     throw new PluginManifestError('missing id', pluginDir)
   }
+  if (m.id.includes('..') || m.id.includes('/') || m.id.includes('\\')) {
+    throw new PluginManifestError('plugin id must not contain path traversal characters (.. / \\)', pluginDir)
+  }
   if (typeof m.version !== 'string' || !m.version.trim()) {
     throw new PluginManifestError('missing version', pluginDir)
   }

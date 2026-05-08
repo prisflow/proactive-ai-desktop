@@ -1,23 +1,23 @@
 import { useConfigStore } from '../stores/configStore'
-import { UserConfig } from '@shared'
+import { GlobalSettings } from '@shared'
 
 interface UseConfigReturn {
-  config: UserConfig
-  updateConfig: (config: Partial<UserConfig>) => void
+  config: GlobalSettings
+  updateConfig: (config: Partial<GlobalSettings>) => void
   resetConfig: () => void
 }
 
 export function useConfig(): UseConfigReturn {
-  const { config, updateConfig, resetConfig, loadFromStorage, saveToStorage } = useConfigStore()
+  const { config, updateConfig, resetConfig, saveToMain } = useConfigStore()
 
-  const handleUpdateConfig = (newConfig: Partial<UserConfig>) => {
+  const handleUpdateConfig = (newConfig: Partial<GlobalSettings>) => {
     updateConfig(newConfig)
-    saveToStorage()
+    void saveToMain()
   }
 
   const handleResetConfig = () => {
     resetConfig()
-    saveToStorage()
+    void saveToMain()
   }
 
   return {

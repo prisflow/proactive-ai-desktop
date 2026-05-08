@@ -14,16 +14,19 @@ export type PluginPermission =
   | 'ui.dispatch'
   /** 读取当前激活资源包元数据（插件私域） */
   | 'assets.readActive'
+  /** 访问智能体总线与全局钩子 */
+  | 'agent.access'
 
 export interface PluginContext {
   getMessages?: (conversationId: string) => ChatMessage[]
   writeToDownloads?: (filename: string, content: string) => Promise<void>
+  clipboardWrite?: (text: string) => Promise<void>
   getPublicSettings?: () => Omit<GlobalSettings, 'apiKey'> & { apiKey?: undefined }
   dispatchToRenderer?: (message: import('../../shared/types').PluginDispatchMessage) => void
   assets?: {
     getActive: () => Promise<ActiveAssetPackSnapshot | null>
   }
-  /** 智能体总线与全局钩子（信封校验失败时 enqueue 返回 false） */
+  /** 智能体总线与全局钩子（信封校验失败时 enqueue 返回 false；需要 agent.access 权限） */
   agent?: {
     enqueueEvent: (envelope: unknown) => Promise<boolean>
     registerHook: (mountPoint: string, handler: HookHandler) => () => void
@@ -33,6 +36,7 @@ export interface PluginContext {
 export interface PluginContextDeps {
   getMessages: (conversationId: string) => ChatMessage[]
   writeToDownloads: (filename: string, content: string) => Promise<void>
+  clipboardWrite: (text: string) => Promise<void>
   getPublicSettings: () => Omit<GlobalSettings, 'apiKey'> & { apiKey?: undefined }
   dispatchToRenderer: (message: import('../../shared/types').PluginDispatchMessage) => void
   getActiveAssetPackResolved: (pluginId: string) => Promise<AssetPackResolved | null>
@@ -55,6 +59,9 @@ export function createPluginContext(
   if (set.has('fs.writesDownloads')) {
     ctx.writeToDownloads = deps.writeToDownloads
   }
+  if (set.has('clipboard.write')) {
+    ctx.clipboardWrite = deps.clipboardWrite
+  }
   if (set.has('config.read')) {
     ctx.getPublicSettings = deps.getPublicSettings
   }
@@ -74,11 +81,13 @@ export function createPluginContext(
       },
     }
   }
-  const bridge = deps.getAgentBridge?.() ?? null
-  if (bridge) {
-    ctx.agent = {
-      enqueueEvent: (envelope) => bridge.enqueueEvent(envelope),
-      registerHook: (mountPoint, handler) => bridge.registerHook(mountPoint, handler),
+  if (set.has('agent.access')) {
+    const bridge = deps.getAgentBridge?.() ?? null
+    if (bridge) {
+      ctx.agent = {
+        enqueueEvent: (envelope) => bridge.enqueueEvent(envelope),
+        registerHook: (mountPoint, handler) => bridge.registerHook(mountPoint, handler),
+      }
     }
   }
   return ctx

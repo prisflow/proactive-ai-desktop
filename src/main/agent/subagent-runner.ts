@@ -20,6 +20,9 @@ export class SubAgentRunner {
     subagentSystemPrompt: string
     userTask: string
     globalSettings: GlobalSettings
+    isProactive?: boolean
+    proactiveCooldownUntil?: number
+    importantInfo?: string[]
     signal?: AbortSignal
   }): void {
     void this.run(opts)
@@ -31,9 +34,12 @@ export class SubAgentRunner {
     subagentSystemPrompt: string
     userTask: string
     globalSettings: GlobalSettings
+    isProactive?: boolean
+    proactiveCooldownUntil?: number
+    importantInfo?: string[]
     signal?: AbortSignal
   }): Promise<void> {
-    const { conversationId, runId, subagentSystemPrompt, userTask, globalSettings, signal } = opts
+    const { conversationId, runId, subagentSystemPrompt, userTask, globalSettings, isProactive, proactiveCooldownUntil, importantInfo, signal } = opts
     try {
       const { reply } = await this.modelTurn.streamSubagentPlain(
         subagentSystemPrompt,
@@ -60,7 +66,7 @@ export class SubAgentRunner {
       )
 
       if (signal?.aborted) {
-        await this.finish(conversationId, runId, 'aborted', reply)
+        await this.finish(conversationId, runId, 'aborted', reply, { isProactive, proactiveCooldownUntil, importantInfo })
         return
       }
 
@@ -74,10 +80,10 @@ export class SubAgentRunner {
         done: true,
         streamKind: 'subagent',
       })
-      await this.finish(conversationId, runId, 'success', reply)
+      await this.finish(conversationId, runId, 'success', reply, { isProactive, proactiveCooldownUntil, importantInfo })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      await this.finish(conversationId, runId, 'aborted', msg)
+      await this.finish(conversationId, runId, 'aborted', msg, { isProactive, proactiveCooldownUntil, importantInfo })
     }
   }
 
@@ -85,7 +91,8 @@ export class SubAgentRunner {
     conversationId: string,
     runId: string,
     status: 'success' | 'aborted',
-    summary: string
+    summary: string,
+    extra?: { isProactive?: boolean; proactiveCooldownUntil?: number; importantInfo?: string[] }
   ): Promise<void> {
     const envelope = createAgentEvent({
       type: CORE_EVENT.SUBAGENT_FINISHED,
@@ -97,6 +104,9 @@ export class SubAgentRunner {
         status,
         summary,
         conversationId,
+        isProactive: extra?.isProactive,
+        proactiveCooldownUntil: extra?.proactiveCooldownUntil,
+        importantInfo: extra?.importantInfo,
       } satisfies SubAgentFinishedPayload,
     })
     await this.bus.enqueue(envelope)
