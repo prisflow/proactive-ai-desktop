@@ -25,7 +25,6 @@ const zh = {
     emptyHint: '在下方输入框发送第一条消息。',
   },
   input: {
-    nextProactive: '下一条主动消息',
     placeholder: '在此输入提示词',
     send: '发送',
     disclaimer:
@@ -49,10 +48,9 @@ const zh = {
     memorySummary: '已显示前 {{shown}} 条（共 {{total}} 条）。',
     pluginsSection: '插件',
     pluginsHint:
-      '可以关：下面列出内置插件，每个一行开关。关掉后立刻生效（例如关掉「2D 虚拟形象」会隐藏右侧形象栏，并不再向模型注入表情说明）。偏好直接写本地，不用点「保存」。',
+      '可以关：下面列出已安装插件，每个一行开关。关掉后立刻生效（例如关掉「2D 虚拟形象」会隐藏右侧形象栏，并不再向模型注入表情说明）。偏好直接写本地，不用点「保存」。',
     pluginsLoading: '加载插件列表…',
     pluginsEmpty: '主进程返回的列表为空（不应出现）。请重启应用或查看控制台。',
-    pluginsBuiltin: '内置',
     pluginsBridgeMissing:
       '当前预加载里没有 plugins.list（多半是 dev 未重启）。请完全退出 Electron 窗口后再运行 npm run dev，列表就会出现。',
     pluginsIpcFailed: '无法从主进程拉取插件列表。请打开开发者工具看控制台报错，或重启应用。',
@@ -74,7 +72,6 @@ const zh = {
     addTemplate: '新增模板…',
     proactiveInterval: '主动触发间隔',
     seconds: '秒',
-    maxTriggers: '最大触发点数量',
     proactiveToggle: '启用主动对话',
     validateSave: '验证并保存配置',
     saveOnly: '仅保存配置',
@@ -92,7 +89,7 @@ const zh = {
     rolePrompt: '角色提示词（rolePrompt）',
     rolePromptPh: '描述这个助手的角色、语气、目标、边界等…',
     rolePromptHint:
-      '只会注入到“角色设定”部分；系统的触发点/格式要求等仍由程序统一追加，不会被覆盖。',
+      '只会注入到“角色设定”部分；返回 JSON 格式等仍由程序统一追加，不会被覆盖。',
     create: '创建并选中',
     creating: '创建中…',
     errNameRequired: '请输入模板名称。',
@@ -138,7 +135,6 @@ const en = {
     emptyHint: 'Send your first message in the box below.',
   },
   input: {
-    nextProactive: 'Next proactive message',
     placeholder: 'Type a message',
     send: 'Send',
     disclaimer:
@@ -165,7 +161,6 @@ const en = {
       'You can turn plugins off: each plugin has a toggle below. Changes apply immediately (e.g. disabling the avatar hides the right rail and stops injecting avatar instructions). Preferences are saved locally; no need to click Save.',
     pluginsLoading: 'Loading plugins…',
     pluginsEmpty: 'Main process returned an empty list (unexpected). Restart the app or check the console.',
-    pluginsBuiltin: 'Built-in',
     pluginsBridgeMissing:
       'Preload is missing plugins.list (common if dev wasn’t restarted). Fully quit Electron, then run npm run dev again.',
     pluginsIpcFailed: 'Could not load the plugin list from the main process. Check DevTools console or restart.',
@@ -188,7 +183,6 @@ const en = {
     addTemplate: 'Add template…',
     proactiveInterval: 'Proactive interval',
     seconds: 's',
-    maxTriggers: 'Max trigger count',
     proactiveToggle: 'Enable proactive messages',
     validateSave: 'Validate & save',
     saveOnly: 'Save only',
@@ -206,7 +200,7 @@ const en = {
     rolePrompt: 'Role prompt',
     rolePromptPh: 'Describe role, tone, goals, boundaries…',
     rolePromptHint:
-      'Injected only as the role section; triggers and JSON rules are still appended by the app.',
+      'Injected only as the role section; JSON format rules are still appended by the app.',
     create: 'Create & select',
     creating: 'Creating…',
     errNameRequired: 'Please enter a template name.',

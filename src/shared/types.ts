@@ -5,8 +5,8 @@ export interface GlobalSettings {
   /** 界面与下发给模型的系统提示语言 */
   locale?: 'zh-CN' | 'en-US'
   defaultTemplateName?: string
-  defaultMaxTriggers?: number
   defaultProactiveInterval?: number
+  defaultMaxTriggers?: number
   proactiveEnabled?: boolean
   theme?: 'light' | 'dark' | 'auto'
   fontSize?: number
@@ -17,7 +17,6 @@ export interface UserSettings {
   proactiveInterval?: number
   recentMessagesCount?: number
   proactiveEnabled?: boolean
-  maxTriggers?: number
   importantInfoThreshold?: number
   theme?: 'light' | 'dark' | 'auto'
   fontSize?: number
@@ -34,7 +33,6 @@ export interface ConversationSettings {
   proactiveInterval?: number
   recentMessagesCount?: number
   proactiveEnabled?: boolean
-  maxTriggers?: number
 }
 
 export interface Conversation {
@@ -57,17 +55,37 @@ export interface ChatMessage {
   isProactive?: boolean
 }
 
+/** 主模型单轮结构化输出（无 triggers） */
 export interface AIResponse {
   reply: string
-  triggers: Trigger[]
-  next_api_call_seconds: number
   important_info: string[]
 }
 
-export interface Trigger {
-  seconds: number
-  message: string
-}
+/** Main → Renderer：流式增量（SSE 语义，走 IPC） */
+export type AgentStreamPushV1 =
+  | {
+      v: 1
+      kind: 'stream'
+      conversationId: string
+      runId: string
+      role: 'assistant'
+      delta: string
+      done: boolean
+      /** 子智能体流时标注 */
+      streamKind?: 'main' | 'subagent'
+    }
+  | {
+      v: 1
+      kind: 'message'
+      conversationId: string
+      message: ChatMessage
+    }
+  | {
+      v: 1
+      kind: 'error'
+      conversationId?: string
+      message: string
+    }
 
 export interface PromptTemplate {
   id: string
@@ -78,10 +96,33 @@ export interface PromptTemplate {
   updatedAt: number
 }
 
+export type ToolActor = 'user' | 'agent' | 'system'
+
+export interface PreToolUseContext {
+  toolName: string
+  args: unknown
+  actor: ToolActor
+  requestId?: string
+  conversationId?: string
+}
+
+/** 返回 blocked 可拦截本次 tool（v1 治理钩子） */
+export type PreToolUseResult = { blocked?: true; reason?: string; args?: unknown }
+
+export interface PostToolUseContext {
+  toolName: string
+  args: unknown
+  result?: unknown
+  error?: string
+  actor: ToolActor
+  durationMs: number
+  requestId?: string
+  conversationId?: string
+}
+
 export interface PluginHooks {
   onMessageSend?: (message: string) => string | Promise<string>
   onMessageReceive?: (reply: string) => string | Promise<string>
-  onTrigger?: (trigger: Trigger) => void | Promise<void>
   onMemoryUpdate?: (importantInfo: string[]) => void | Promise<void>
   /**
    * system prompt 构建钩子：返回要追加到 system prompt 的文本（空/undefined 表示不修改）。
@@ -95,6 +136,12 @@ export interface PluginHooks {
   onConfigChange?: (config: Record<string, any>) => void | Promise<void>
   onInit?: () => void | Promise<void>
   onDestroy?: () => void | Promise<void>
+  /** Tool 调用前（治理/审计；可阻断） */
+  preToolUse?: (
+    ctx: PreToolUseContext
+  ) => void | PreToolUseResult | Promise<void | PreToolUseResult>
+  /** Tool 调用后 */
+  postToolUse?: (ctx: PostToolUseContext) => void | Promise<void>
 }
 
 export interface Plugin {
@@ -107,10 +154,17 @@ export interface Plugin {
 }
 
 export type PluginDispatchMessage =
-  | { v: 1; pluginId: 'com.proactiveai.pavatar'; type: 'AVATAR_SET_MOOD'; mood: string; durationMs?: number }
-  | { v: 1; pluginId: 'com.proactiveai.pavatar'; type: 'AVATAR_PLAY_EMOTE'; name: string; durationMs?: number }
+  | { v: 1; pluginId: string; type: 'AVATAR_SET_MOOD'; mood: string; durationMs?: number }
+  | { v: 1; pluginId: string; type: 'AVATAR_PLAY_EMOTE'; name: string; durationMs?: number }
 
-export type PAvatarPackManifestV1 = {
+/** 主进程通过 ctx.assets.getActive() 暴露给插件的快照（无 URL / 绝对路径） */
+export type ActiveAssetPackSnapshot = {
+  packId: string
+  version: string
+  expressions?: Record<string, { row: number; col: number }>
+}
+
+export type AssetPackManifestV1 = {
   v: 1
   packId: string
   version: string
@@ -141,7 +195,7 @@ export type PAvatarPackManifestV1 = {
   }
 }
 
-export type PAvatarPackResolved = {
+export type AssetPackResolved = {
   packId: string
   version: string
   name: string
@@ -150,22 +204,71 @@ export type PAvatarPackResolved = {
   expressions?: Record<string, { row: number; col: number }>
   /** absolute directory path on disk (main process only) */
   dir?: string
-  /** URLs accessible from renderer (pavatar://...) */
+  /** URLs accessible from renderer (plugin-asset://...) */
   idleUrl: string
   atlasUrl: string
-  idle: PAvatarPackManifestV1['idle']
-  atlas: PAvatarPackManifestV1['atlas']
+  idle: AssetPackManifestV1['idle']
+  atlas: AssetPackManifestV1['atlas']
 }
 
-/** 设置页 / IPC：插件列表项（一期仅内置） */
+/** plugin.json v1（与 doc/插件生态系统-v1 对齐） */
+export interface PluginManifestV1 {
+  schema_version: 1
+  id: string
+  version: string
+  name: string
+  slug?: string
+  description?: string
+  author?: string
+  /** 入口脚本名，相对插件目录；空字符串表示由宿主内置实现加载 */
+  main: string
+  min_app_version: string
+  permissions: string[]
+  hooks: string[]
+  tools: string[]
+  ui?: {
+    settingsSections?: Array<Record<string, unknown>>
+    rightRailPanels?: Array<Record<string, unknown>>
+  }
+  configSchema?: Record<string, unknown>
+}
+
+/** 插件入口导出的 tool（主进程侧 run 已绑定 ctx） */
+export interface PluginToolExport {
+  name: string
+  inputSchema?: Record<string, unknown>
+  run: (input: unknown) => unknown | Promise<unknown>
+}
+
+/** 设置页 / IPC：插件列表项 */
 export interface PluginListEntry {
   id: string
   name: string
   version: string
   enabled: boolean
-  builtin: boolean
   /** 加载或校验失败时由主进程填充 */
   error?: string
+  permissions?: string[]
+  hooksDeclared?: string[]
+  toolsDeclared?: string[]
+  ui?: {
+    settingsSectionCount: number
+    rightRailPanelCount: number
+  }
+}
+
+export interface PluginToolCallRecord {
+  toolName: string
+  pluginId?: string
+  ok: boolean
+  durationMs: number
+  at: number
+  error?: string
+  blocked?: boolean
+}
+
+export interface PluginDiagnostics {
+  recentToolCalls: PluginToolCallRecord[]
 }
 
 /** plugins:exportConversation 返回 */

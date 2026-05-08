@@ -3,7 +3,6 @@ import { GlobalSettings } from '../shared/types'
 import {
   DEFAULT_MODEL,
   DEFAULT_BASE_URL,
-  DEFAULT_MAX_TRIGGERS,
   DEFAULT_PROACTIVE_INTERVAL,
   DEFAULT_PROACTIVE_ENABLED,
   DEFAULT_TEMPLATE_NAME,
@@ -19,7 +18,6 @@ const DEFAULT_CONFIG: GlobalSettings = {
   baseURL: DEFAULT_BASE_URL,
   locale: DEFAULT_LOCALE,
   defaultTemplateName: DEFAULT_TEMPLATE_NAME,
-  defaultMaxTriggers: DEFAULT_MAX_TRIGGERS,
   defaultProactiveInterval: DEFAULT_PROACTIVE_INTERVAL,
   proactiveEnabled: DEFAULT_PROACTIVE_ENABLED,
   theme: DEFAULT_THEME as 'light' | 'dark' | 'auto',

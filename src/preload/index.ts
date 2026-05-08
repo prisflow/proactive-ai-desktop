@@ -16,16 +16,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('plugins:preferencesChanged', handler)
       return () => ipcRenderer.removeListener('plugins:preferencesChanged', handler)
     },
-  },
-  pavatar: {
-    listPacks: (): Promise<any[]> => ipcRenderer.invoke('pavatar:listPacks'),
-    getActivePack: (): Promise<any | null> => ipcRenderer.invoke('pavatar:getActivePack'),
-    setActivePack: (packId: string, version: string): Promise<boolean> =>
-      ipcRenderer.invoke('pavatar:setActivePack', packId, version),
-    onActivePackChanged: (cb: (x: { packId: string; version: string }) => void) => {
-      const handler = (_ev: any, payload: any) => cb(payload)
-      ipcRenderer.on('pavatar:activePackChanged', handler)
-      return () => ipcRenderer.removeListener('pavatar:activePackChanged', handler)
+    getConfig: (pluginId: string): Promise<Record<string, unknown>> =>
+      ipcRenderer.invoke('plugins:getConfig', pluginId),
+    setConfig: (pluginId: string, config: Record<string, unknown>): Promise<boolean> =>
+      ipcRenderer.invoke('plugins:setConfig', pluginId, config),
+    getManifest: (pluginId: string): Promise<unknown> =>
+      ipcRenderer.invoke('plugins:getManifest', pluginId),
+    getResolvedAssetPack: (pluginId: string): Promise<unknown> =>
+      ipcRenderer.invoke('plugins:getResolvedAssetPack', pluginId),
+    getDiagnostics: (): Promise<unknown> => ipcRenderer.invoke('plugins:getDiagnostics'),
+    callTool: (
+      toolName: string,
+      input: unknown,
+      actor?: 'user' | 'agent' | 'system'
+    ): Promise<{ ok: true; result: unknown } | { ok: false; error: string; blocked?: boolean }> =>
+      ipcRenderer.invoke('plugins:callTool', toolName, input, actor),
+    installFromGithub: (
+      github: string,
+      ref?: string
+    ): Promise<
+      { ok: true; pluginId: string; version: string } | { ok: false; error: string }
+    > => ipcRenderer.invoke('plugins:installFromGithub', { github, ref }),
+    installFromUrl: (
+      url: string
+    ): Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('plugins:installFromUrl', { url }),
+    installFromRelease: (
+      github: string,
+      tag: string,
+      asset: string
+    ): Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('plugins:installFromRelease', { github, tag, asset }),
+    onToast: (
+      cb: (payload: { v: 1; type: 'info' | 'success' | 'warning' | 'error'; text: string }) => void
+    ) => {
+      const handler = (_ev: unknown, payload: unknown) => cb(payload as any)
+      ipcRenderer.on('app:toast', handler)
+      return () => ipcRenderer.removeListener('app:toast', handler)
     },
   },
   window: {
@@ -33,14 +60,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     maximizeToggle: (): Promise<void> => ipcRenderer.invoke('window:maximize-toggle'),
     close: (): Promise<void> => ipcRenderer.invoke('window:close'),
   },
-  chat: {
-    send: (
-      message: string,
-      history: any[],
-      importantInfo: string[],
-      conversationId?: string
-    ): Promise<any> =>
-      ipcRenderer.invoke('chat:send', message, history, importantInfo, conversationId),
+  agent: {
+    submitUserText: (opts: {
+      conversationId: string
+      text: string
+      userMessageId?: string
+    }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('agent:submitUserText', opts),
+    activityPing: (conversationId: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('agent:activityPing', conversationId),
+    onPush: (cb: (payload: unknown) => void) => {
+      const handler = (_ev: unknown, payload: unknown) => cb(payload)
+      ipcRenderer.on('agent:push', handler)
+      return () => ipcRenderer.removeListener('agent:push', handler)
+    },
   },
   config: {
     get: (): Promise<any> =>

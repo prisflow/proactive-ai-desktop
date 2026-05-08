@@ -1,6 +1,6 @@
 # scripts
 
-本目录是 **离线工具** 与 **electron-builder 钩子**，不参与应用运行时。像素小人资源格式与同步逻辑见仓库根目录 `doc/像素小人插件.md`。
+本目录是 **离线工具** 与 **electron-builder 钩子**，不参与应用运行时。资源包格式、内置 demo 同步与主进程逻辑见 **`doc/产品现状-插件运行时与资源包.md`**（索引 **`doc/README.md`**）。
 
 ## 依赖
 
@@ -12,11 +12,11 @@ node scripts/<name>.cjs [args]
 
 ---
 
-## 像素小人 / 内置 demo
+## 资源包 / 内置 demo
 
 | 脚本 | 作用 |
 | --- | --- |
-| `generate-builtin-pavatar-demo.cjs` | 在 `resources/pavatar-bundled/com.proactiveai.demo/1.0.0/` 生成 **色块占位** 的 `atlas.png`、`idle.sheet.png` 和配套 `manifest.json`（192px 网格）。**会覆盖该目录下同名文件**；仅用于重置占位或调尺寸，不要误跑掉真实美术资源。 |
+| `generate-builtin-avatar-demo.cjs` | 在 `resources/plugin-assets-bundled/com.proactiveai.demo/1.0.0/` 生成 **色块占位** 的 `atlas.png`、`idle.sheet.png` 和配套 `manifest.json`（192px 网格）。**会覆盖该目录下同名文件**；仅用于重置占位或调尺寸，不要误跑掉真实美术资源。 |
 | `make-transparent-sprites.cjs` | 把近黑背景抠成透明 PNG（`clean` / `shadow` 两种策略）。用于素材预处理。 |
 | `normalize-idle-sheet.cjs` | 横向多帧 idle 条带 → 按帧对齐脚底与中心 → 裁方格 → 最近邻缩放到目标 tile，输出规范 `idle.sheet.png`。 |
 | `make-idle-sheet-from-atlas.cjs` | 从大图 atlas 裁第一行若干格拼成横向 idle 条带（占位用）。 |
@@ -24,10 +24,10 @@ node scripts/<name>.cjs [args]
 **npm 快捷方式**（仅第一项）：
 
 ```bash
-npm run gen:pavatar-demo
+npm run gen:avatar-demo
 ```
 
-改完资源后请自行提交 `resources/pavatar-bundled`；应用启动会把内置 demo **同步** 到用户 `userData/pavatar-packs`（见主进程 `pack-store`）。
+改完资源后请自行提交 `resources/plugin-assets-bundled`；应用启动会把内置 demo **同步** 到用户 `userData/plugin-asset-packs`（见主进程 `pack-store`）。
 
 ---
 
@@ -48,6 +48,6 @@ npm run dist:win:fresh   # 清缓存后打 Windows 包
 
 ## 与 `package.json` 的对应关系
 
-- `gen:pavatar-demo` → `generate-builtin-pavatar-demo.cjs`
+- `gen:avatar-demo` → `generate-builtin-avatar-demo.cjs`
 - `dist:win:fresh` → `clean-electron-win-cache.cjs` 然后 `dist:win`
 - `build.afterPack` → `after-pack-win-icon.cjs`

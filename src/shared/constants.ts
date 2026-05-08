@@ -23,18 +23,10 @@ export const RESPONSE_FORMAT_REQUIREMENTS = `返回格式要求：
 - 必须返回纯JSON格式，不要使用markdown代码块标记（不要用\`\`\`json）
 - 不要添加任何额外的文字说明
 - 直接返回JSON对象
-- 所有字段必须存在：reply, triggers, next_api_call_seconds, important_info
-- triggers数组最多包含${DEFAULT_MAX_TRIGGERS}个元素
-- 每个trigger必须包含seconds和message字段
-- next_api_call_seconds必须是正整数`
+- 所有字段必须存在：reply, important_info`
 
 export const RESPONSE_FORMAT_EXAMPLE = `{
     "reply": "你对用户的即时回复内容",
-    "triggers": [
-        {"seconds": 10, "message": "如果10秒后用户没回复，说..."},
-        {"seconds": 30, "message": "如果30秒后用户还没回复，说..."}
-    ],
-    "next_api_call_seconds": 60,
     "important_info": ["当前用户消息中的关键信息"]
 }`
 
@@ -43,13 +35,10 @@ export const PROACTIVE_RULES = `重要规则：
 - 主动发消息是为了关心用户或延续有价值的对话
 - 如果没有特别的事情要说，建议不要主动打扰`
 
-export const MAX_TRIGGERS = DEFAULT_MAX_TRIGGERS
-
 export const DEFAULT_SETTINGS = {
   proactiveInterval: DEFAULT_PROACTIVE_INTERVAL,
   recentMessagesCount: 3,
   proactiveEnabled: DEFAULT_PROACTIVE_ENABLED,
-  maxTriggers: DEFAULT_MAX_TRIGGERS,
   theme: DEFAULT_THEME,
   fontSize: DEFAULT_FONT_SIZE,
 }

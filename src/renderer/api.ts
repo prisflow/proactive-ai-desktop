@@ -1,11 +1,15 @@
 import {
   ChatMessage,
   UserConfig,
-  ChatResponse,
   GlobalSettings,
   PromptTemplate,
   Conversation,
+  AssetPackResolved,
   PluginListEntry,
+  PluginManifestV1,
+  PluginDiagnostics,
+  ToolActor,
+  AgentStreamPushV1,
 } from '@shared'
 
 declare global {
@@ -17,25 +21,49 @@ declare global {
         list: () => Promise<PluginListEntry[]>
         setEnabled: (pluginId: string, enabled: boolean) => Promise<boolean>
         onPreferencesChanged: (cb: () => void) => () => void
-      }
-      pavatar: {
-        listPacks: () => Promise<import('@shared').PAvatarPackResolved[]>
-        getActivePack: () => Promise<import('@shared').PAvatarPackResolved | null>
-        setActivePack: (packId: string, version: string) => Promise<boolean>
-        onActivePackChanged: (cb: (x: { packId: string; version: string }) => void) => () => void
+        getConfig: (pluginId: string) => Promise<Record<string, unknown>>
+        setConfig: (pluginId: string, config: Record<string, unknown>) => Promise<boolean>
+        getManifest: (pluginId: string) => Promise<import('@shared').PluginManifestV1 | null>
+        getResolvedAssetPack: (
+          pluginId: string
+        ) => Promise<import('@shared').AssetPackResolved | null>
+        getDiagnostics: () => Promise<import('@shared').PluginDiagnostics>
+        callTool: (
+          toolName: string,
+          input: unknown,
+          actor?: import('@shared').ToolActor
+        ) => Promise<{ ok: true; result: unknown } | { ok: false; error: string; blocked?: boolean }>
+        installFromGithub: (
+          github: string,
+          ref?: string
+        ) => Promise<
+          { ok: true; pluginId: string; version: string } | { ok: false; error: string }
+        >
+        installFromUrl: (
+          url: string
+        ) => Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }>
+        installFromRelease: (
+          github: string,
+          tag: string,
+          asset: string
+        ) => Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }>
+        onToast: (
+          cb: (payload: { v: 1; type: 'info' | 'success' | 'warning' | 'error'; text: string }) => void
+        ) => () => void
       }
       window: {
         minimize: () => Promise<void>
         maximizeToggle: () => Promise<void>
         close: () => Promise<void>
       }
-      chat: {
-        send: (
-          message: string,
-          history: ChatMessage[],
-          importantInfo: string[],
-          conversationId?: string
-        ) => Promise<ChatResponse>
+      agent: {
+        submitUserText: (opts: {
+          conversationId: string
+          text: string
+          userMessageId?: string
+        }) => Promise<{ ok: boolean; error?: string }>
+        activityPing: (conversationId: string) => Promise<{ ok: boolean }>
+        onPush: (cb: (payload: AgentStreamPushV1) => void) => () => void
       }
       config: {
         get: () => Promise<GlobalSettings>
@@ -67,19 +95,20 @@ declare global {
   }
 }
 
-export async function sendMessage(
-  message: string,
-  history: ChatMessage[],
-  importantInfo: string[],
-  conversationId?: string
-): Promise<ChatResponse> {
-  const response = await window.electronAPI.chat.send(
-    message,
-    history,
-    importantInfo,
-    conversationId
-  )
-  return response
+export async function submitUserText(opts: {
+  conversationId: string
+  text: string
+  userMessageId?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  return window.electronAPI.agent.submitUserText(opts)
+}
+
+export async function agentActivityPing(conversationId: string): Promise<void> {
+  void window.electronAPI.agent.activityPing(conversationId)
+}
+
+export function subscribeAgentPush(cb: (payload: AgentStreamPushV1) => void): () => void {
+  return window.electronAPI.agent.onPush(cb)
 }
 
 export async function getConfig(): Promise<GlobalSettings> {
@@ -169,5 +198,85 @@ export async function setPluginEnabled(pluginId: string, enabled: boolean): Prom
     throw new Error('PRELOAD_PLUGINS_SET_ENABLED_MISSING')
   }
   return fn(pluginId, enabled)
+}
+
+export async function getPluginConfig(pluginId: string): Promise<Record<string, unknown>> {
+  const fn = window.electronAPI?.plugins?.getConfig
+  if (typeof fn !== 'function') throw new Error('PRELOAD_PLUGINS_GET_CONFIG_MISSING')
+  return fn(pluginId)
+}
+
+export async function setPluginConfig(
+  pluginId: string,
+  config: Record<string, unknown>
+): Promise<boolean> {
+  const fn = window.electronAPI?.plugins?.setConfig
+  if (typeof fn !== 'function') throw new Error('PRELOAD_PLUGINS_SET_CONFIG_MISSING')
+  return fn(pluginId, config)
+}
+
+export async function getPluginManifest(pluginId: string): Promise<PluginManifestV1 | null> {
+  const fn = window.electronAPI?.plugins?.getManifest
+  if (typeof fn !== 'function') throw new Error('PRELOAD_PLUGINS_GET_MANIFEST_MISSING')
+  const raw = await fn(pluginId)
+  return raw && typeof raw === 'object' ? (raw as PluginManifestV1) : null
+}
+
+export async function getPluginResolvedAssetPack(pluginId: string): Promise<AssetPackResolved | null> {
+  const fn = window.electronAPI?.plugins?.getResolvedAssetPack
+  if (typeof fn !== 'function') return null
+  const raw = await fn(pluginId)
+  return raw && typeof raw === 'object' ? (raw as AssetPackResolved) : null
+}
+
+export async function getPluginDiagnostics(): Promise<PluginDiagnostics> {
+  const fn = window.electronAPI?.plugins?.getDiagnostics
+  if (typeof fn !== 'function') throw new Error('PRELOAD_PLUGINS_GET_DIAGNOSTICS_MISSING')
+  return (await fn()) as PluginDiagnostics
+}
+
+export async function callPluginTool(
+  toolName: string,
+  input: unknown,
+  actor: ToolActor = 'user'
+): Promise<{ ok: true; result: unknown } | { ok: false; error: string; blocked?: boolean }> {
+  const fn = window.electronAPI?.plugins?.callTool
+  if (typeof fn !== 'function') throw new Error('PRELOAD_PLUGINS_CALL_TOOL_MISSING')
+  return fn(toolName, input, actor)
+}
+
+export function subscribeAppToast(
+  cb: (payload: { v: 1; type: 'info' | 'success' | 'warning' | 'error'; text: string }) => void
+): () => void {
+  const fn = window.electronAPI?.plugins?.onToast
+  if (typeof fn !== 'function') return () => {}
+  return fn(cb)
+}
+
+export async function installPluginFromGithub(
+  github: string,
+  ref?: string
+): Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }> {
+  const fn = window.electronAPI?.plugins?.installFromGithub
+  if (typeof fn !== 'function') return { ok: false, error: 'preload_missing_installFromGithub' }
+  return fn(github, ref)
+}
+
+export async function installPluginFromUrl(
+  url: string
+): Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }> {
+  const fn = window.electronAPI?.plugins?.installFromUrl
+  if (typeof fn !== 'function') return { ok: false, error: 'preload_missing_installFromUrl' }
+  return fn(url)
+}
+
+export async function installPluginFromRelease(
+  github: string,
+  tag: string,
+  asset: string
+): Promise<{ ok: true; pluginId: string; version: string } | { ok: false; error: string }> {
+  const fn = window.electronAPI?.plugins?.installFromRelease
+  if (typeof fn !== 'function') return { ok: false, error: 'preload_missing_installFromRelease' }
+  return fn(github, tag, asset)
 }
 

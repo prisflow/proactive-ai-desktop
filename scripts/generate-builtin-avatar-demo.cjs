@@ -25,7 +25,7 @@ function fillRect(data, stride, x0, y0, w, h, r, g, b, a = 255) {
 }
 
 function main() {
-  const root = path.join(__dirname, '../resources/pavatar-bundled/com.proactiveai.demo/1.0.0')
+  const root = path.join(__dirname, '../resources/plugin-assets-bundled/com.proactiveai.demo/1.0.0')
   fs.mkdirSync(root, { recursive: true })
 
   const aw = TILE * COLS
@@ -40,7 +40,7 @@ function main() {
       fillRect(atlas.data, aw, col * TILE, row * TILE, TILE, TILE, r, g, b, 255)
     }
   }
-  fs.writeFileSync(path.join(root, 'atlas.png'), PNG.sync.write(atlas)) // same name as shipped manifest
+  fs.writeFileSync(path.join(root, 'atlas.png'), PNG.sync.write(atlas))
 
   const iw = TILE * IDLE_FRAMES
   const ih = TILE

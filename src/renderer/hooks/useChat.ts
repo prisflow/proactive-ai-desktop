@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useChatStore } from '../stores/chatStore'
 import { useConfigStore } from '../stores/configStore'
-import { callAI } from '../api'
-import { ChatResponse } from '@shared'
+import { submitUserText } from '../api'
 
 interface UseChatReturn {
   sendMessage: (content: string) => Promise<void>
@@ -10,39 +9,33 @@ interface UseChatReturn {
   error: Error | null
 }
 
+/** @deprecated Prefer InputArea + agent push subscription */
 export function useChat(conversationId: string): UseChatReturn {
-  const { addMessage, setLoading, currentConversation } = useChatStore()
+  const { addMessage, setLoading } = useChatStore()
   const { config } = useConfigStore()
   const [error, setError] = useState<Error | null>(null)
 
   const sendMessage = async (content: string) => {
     if (!content.trim()) return
-
     if (!config.apiKey) {
       throw new Error('请先配置 API Key')
     }
-
     setLoading(true)
     setError(null)
-
+    const userMessageId = `msg_${Date.now()}`
     try {
-      const response: ChatResponse = await callAI(
-        content,
-        [],
-        [],
-        config
-      )
-
       addMessage(conversationId, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: response.reply,
+        id: userMessageId,
+        role: 'user',
+        content: content.trim(),
         createdAt: Date.now(),
-        extra: {
-          triggers: response.triggers,
-          next_api_call_seconds: response.next_api_call_seconds,
-        },
       })
+      const r = await submitUserText({
+        conversationId,
+        text: content.trim(),
+        userMessageId,
+      })
+      if (!r.ok) throw new Error(r.error || 'send failed')
     } catch (err) {
       setError(err as Error)
       throw err

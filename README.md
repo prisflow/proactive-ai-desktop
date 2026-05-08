@@ -10,7 +10,36 @@
 - 🎯 分层记忆 - 重要信息自动压缩，高效不丢失关键
 - 🎨 现代UI - 基于 React + TailwindCSS 的现代化界面
 - 👥 人设模板 - 多种 AI 人设可选
-- 🔌 插件扩展（类型与协议已预留，插件市场/运行时加载尚未实现）
+- 🔌 插件扩展（统一 `plugin.json` + CJS/ESM 入口）
+
+## 文档
+
+产品与实现说明见 **`doc/README.md`**（含 v1 规划与「产品现状」系列）。
+
+## 随包插件同步（构建/开发）
+
+构建/开发前会把示例随包插件同步到仓库内的 **`resources/bundled-plugins/<id>/<version>/`**，由 **`scripts/sync-bundled-plugins.ts`** 完成（`npm run build` 与 `npm run dev` 的 `predev` 会执行）。应用首次启动时会把该目录 **seed** 到用户数据 **`userData/plugins/packages/`**，运行时只从后者发现与加载插件（单一路径）。
+
+**默认**：未设置环境变量时，会从默认示例仓库的 **GitHub Release**（当前默认 tag `v0.1.0`，资产名 `com.proactiveai.pavatar-0.1.0.zip`）下载随包插件。若拉取失败会跳过并打印警告。若要拉 **分支源码 zip**（codeload），可设例如 `$env:BUILTIN_PLUGIN_REF='main'`。
+
+```powershell
+$env:BUILTIN_PLUGIN_REPO='D:\path\to\plugin-repo'
+npm run build
+```
+
+**显式指定远端**：
+
+```powershell
+$env:BUILTIN_PLUGIN_GITHUB='你的组织/your-plugin-repo'
+$env:BUILTIN_PLUGIN_REF='main'
+npm run build
+```
+
+可选：`BUILTIN_PLUGIN_REF=v0.2.0`（其它 Release tag）、`BUILTIN_PLUGIN_RELEASE_ASSET=my-plugin-0.2.0.zip`（与 tag 对应的 Releases 资产文件名）、`BUILTIN_PLUGIN_GITHUB_DEFAULT` / `BUILTIN_PLUGIN_GITHUB_FALLBACK` 覆盖默认仓库。
+
+插件入口为 **TS 编译的 ESM**（`dist/main.js` + `package.json` 的 `"type":"module"`），宿主用 `import()` 加载。
+
+**应用内安装**：渲染进程可调用 `electronAPI.plugins.installFromGithub('owner/repo', 'main')` 等 API，插件会安装到 **`userData/plugins/packages/`** 并自动启用、重载。
 
 ## 环境要求
 

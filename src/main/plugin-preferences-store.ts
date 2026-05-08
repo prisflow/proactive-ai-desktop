@@ -1,6 +1,6 @@
 import Store from 'electron-store'
 
-const DEFAULT_ENABLED = ['com.proactiveai.pavatar'] as const
+const DEFAULT_ENABLED: string[] = []
 
 export interface PluginPreferences {
   enabled: string[]
@@ -12,9 +12,6 @@ const DEFAULTS: PluginPreferences = {
   config: {},
 }
 
-/** electron-store 不会在已有 `enabled` 数组上合并新的默认值；旧配置里若缺少内置 pavatar，补一次。 */
-const MERGE_PAVATAR_FLAG = '__merge_builtin_pavatar_v1' as const
-
 class PluginPreferencesStore {
   private store: Store<PluginPreferences>
 
@@ -23,18 +20,6 @@ class PluginPreferencesStore {
       name: 'plugin-preferences',
       defaults: DEFAULTS,
     })
-    this.ensureBuiltinPavatarInEnabledOnce()
-  }
-
-  private ensureBuiltinPavatarInEnabledOnce(): void {
-    const st = this.store as any
-    if (st.get(MERGE_PAVATAR_FLAG, false)) return
-    st.set(MERGE_PAVATAR_FLAG, true)
-    const enabled = st.get('enabled', []) as unknown
-    if (!Array.isArray(enabled)) return
-    const list = enabled.filter((x) => typeof x === 'string') as string[]
-    if (list.includes('com.proactiveai.pavatar')) return
-    st.set('enabled', [...list, 'com.proactiveai.pavatar'])
   }
 
   get(): PluginPreferences {
@@ -72,6 +57,22 @@ class PluginPreferencesStore {
     const cur = this.get()
     const config = { ...(cur.config || {}) }
     config[pluginId] = { ...(next || {}) }
+    ;(this.store as any).set('config', config)
+  }
+
+  /** 去掉未安装插件的启用项与配置，避免历史 id 残留 */
+  pruneToInstalledPluginIds(installedIds: ReadonlySet<string>): void {
+    const cur = this.get()
+    let enabled = cur.enabled.filter((id) => installedIds.has(id))
+    if (enabled.length === 0 && installedIds.size > 0 && cur.enabled.length > 0) {
+      enabled = [...installedIds].sort((a, b) => a.localeCompare(b))
+    }
+    const config: Record<string, Record<string, unknown>> = {}
+    const rawCfg = cur.config || {}
+    for (const id of installedIds) {
+      if (rawCfg[id]) config[id] = { ...rawCfg[id] }
+    }
+    ;(this.store as any).set('enabled', enabled)
     ;(this.store as any).set('config', config)
   }
 }

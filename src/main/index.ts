@@ -1,7 +1,10 @@
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
+import fs from 'fs/promises'
 import path from 'path'
-import { ChatCore } from './chat-core'
 import { configStore } from './config-store'
+import { createAgentRuntime } from './agent/orchestrator'
+import { CORE_EVENT, createAgentEvent } from '../shared/agent-events'
+import type { AgentStreamPushV1 } from '../shared/types'
 import { templateStore } from './template-store'
 import { conversationStore } from './conversation-store'
 import { messageStore } from './message-store'
@@ -9,37 +12,33 @@ import {
   GlobalSettings,
   Conversation,
   ChatMessage,
-  AIResponse,
   PromptTemplate,
 } from '../shared/types'
-import { normalizeLocale, isDefaultConversationTitle, defaultConversationTitle } from '../shared/locale'
-import { getBuiltinRolePrompt, getFallbackRolePrompt } from '../shared/prompt-i18n'
+import { normalizeLocale, defaultConversationTitle } from '../shared/locale'
 import { pluginRegistry } from './plugins/registry'
+import { seedBundledPluginsIfNeeded } from './plugins/bundled-seed'
 import {
-  ensurePAvatarPacksDir,
-  getActivePAvatarPackResolved,
-  registerPAvatarProtocol,
-  scanPAvatarPacks,
-  syncBundledPavatarPackIfNeeded,
-} from './pavatar/pack-store'
+  installPluginFromGithub,
+  installPluginFromUrl,
+  githubReleaseAssetUrl,
+  parseGithubPluginSpec,
+} from './plugins/install-from-github'
+import {
+  ensurePluginAssetPacksDir,
+  getActiveAssetPackResolved,
+  registerPluginAssetProtocol,
+} from './plugin-assets/pack-store'
 import { pluginPreferencesStore } from './plugin-preferences-store'
-import type { PAvatarPackResolved, PluginListEntry } from '../shared/types'
+import type { PluginListEntry, ToolActor } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
-let chatCore: ChatCore | null = null
+let agentRuntime: ReturnType<typeof createAgentRuntime> | null = null
+
+function pushAgentStream(p: AgentStreamPushV1): void {
+  mainWindow?.webContents.send('agent:push', p)
+}
 
 const WINDOW_TITLE = 'ProactiveAI'
-
-function titleFromFirstUserMessage(
-  text: string,
-  locale: ReturnType<typeof normalizeLocale>,
-  maxLen = 42
-): string {
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized) return defaultConversationTitle(locale)
-  if (normalized.length <= maxLen) return normalized
-  return normalized.slice(0, maxLen).trimEnd() + '…'
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -80,14 +79,21 @@ app.whenReady().then(async () => {
   }
   Menu.setApplicationMenu(null)
   templateStore.init()
-  registerPAvatarProtocol()
-  await ensurePAvatarPacksDir()
-  await syncBundledPavatarPackIfNeeded()
-  chatCore = new ChatCore()
+  registerPluginAssetProtocol()
+  await ensurePluginAssetPacksDir()
+  await seedBundledPluginsIfNeeded()
+  agentRuntime = createAgentRuntime(pushAgentStream)
+  pluginRegistry.setAgentBridge({
+    enqueueEvent: (envelope) => agentRuntime!.bus.enqueue(envelope),
+    registerHook: (mountPoint, handler) => agentRuntime!.hooks.register(mountPoint, handler),
+  })
   pluginRegistry.setRendererDispatcher((message) => {
     mainWindow?.webContents.send('plugin:dispatch', message)
   })
-  pluginRegistry.initBuiltins()
+  pluginRegistry.setToastDispatcher((payload) => {
+    mainWindow?.webContents.send('app:toast', payload)
+  })
+  await pluginRegistry.initPlugins()
   // Register IPC before any window loads the renderer (avoids invoke races in dev).
   setupIPC()
   createWindow()
@@ -121,38 +127,13 @@ function setupIPC() {
     mainWindow?.close()
   })
 
-  // pavatar packs
-  ipcMain.handle('pavatar:listPacks', async (): Promise<PAvatarPackResolved[]> => {
-    return await scanPAvatarPacks()
-  })
-  ipcMain.handle('pavatar:getActivePack', async (): Promise<PAvatarPackResolved | null> => {
-    return await getActivePAvatarPackResolved()
-  })
-  ipcMain.handle(
-    'pavatar:setActivePack',
-    async (_ev, packId: string, version: string): Promise<boolean> => {
-      const packs = await scanPAvatarPacks()
-      const hit = packs.find((p) => p.packId === packId && p.version === version)
-      if (!hit) return false
-      const cur = pluginPreferencesStore.getPluginConfig('com.proactiveai.pavatar')
-      pluginPreferencesStore.setPluginConfig('com.proactiveai.pavatar', {
-        ...cur,
-        activePackId: packId,
-        activePackVersion: version,
-      })
-      mainWindow?.webContents.send('pavatar:activePackChanged', { packId, version })
-      return true
-    }
-  )
-
   ipcMain.handle('plugins:list', async (): Promise<PluginListEntry[]> => {
     return pluginRegistry.listPlugins()
   })
   ipcMain.handle(
     'plugins:setEnabled',
     async (_ev, pluginId: string, enabled: boolean): Promise<boolean> => {
-      const known = pluginRegistry.listPlugins().some((p) => p.id === pluginId)
-      if (!known) return false
+      if (!pluginRegistry.hasPlugin(pluginId)) return false
       pluginRegistry.setEnabled(pluginId, enabled)
       mainWindow?.webContents.send('plugins:preferencesChanged')
       return true
@@ -160,111 +141,162 @@ function setupIPC() {
   )
 
   ipcMain.handle(
-    'chat:send',
+    'plugins:getConfig',
+    async (_ev, pluginId: string): Promise<Record<string, unknown>> => {
+      if (!pluginRegistry.hasPlugin(pluginId)) return {}
+      return pluginPreferencesStore.getPluginConfig(pluginId)
+    }
+  )
+
+  ipcMain.handle(
+    'plugins:setConfig',
+    async (_ev, pluginId: string, config: Record<string, unknown>): Promise<boolean> => {
+      if (!pluginRegistry.hasPlugin(pluginId)) return false
+      pluginPreferencesStore.setPluginConfig(pluginId, config)
+      mainWindow?.webContents.send('plugins:preferencesChanged')
+      return true
+    }
+  )
+
+  ipcMain.handle('plugins:getManifest', async (_ev, pluginId: string) => {
+    return pluginRegistry.getManifest(pluginId)
+  })
+
+  ipcMain.handle('plugins:getResolvedAssetPack', async (_ev, pluginId: string) => {
+    const p = await getActiveAssetPackResolved(String(pluginId || ''))
+    if (!p) return null
+    const { dir: _omit, ...rest } = p
+    return rest
+  })
+
+  ipcMain.handle('plugins:getDiagnostics', async () => {
+    return pluginRegistry.getDiagnostics()
+  })
+
+  ipcMain.handle(
+    'plugins:callTool',
     async (
-      event,
-      message: string,
-      history: ChatMessage[],
-      importantInfo: string[],
-      conversationId?: string
-    ): Promise<AIResponse> => {
-      if (!chatCore) {
-        throw new Error('ChatCore not initialized')
-      }
+      _ev,
+      toolName: string,
+      input: unknown,
+      actor?: ToolActor
+    ): Promise<{ ok: true; result: unknown } | { ok: false; error: string; blocked?: boolean }> => {
+      const a: ToolActor =
+        actor === 'agent' || actor === 'system' || actor === 'user' ? actor : 'user'
+      return pluginRegistry.toolRuntime.call(toolName, input, { actor: a })
+    }
+  )
 
-      const config = configStore.get()
-      const locale = normalizeLocale(config.locale)
-      let conversationSettings: Conversation['settings'] = undefined
+  ipcMain.handle(
+    'plugins:installFromGithub',
+    async (
+      _ev,
+      payload: { github: string; ref?: string }
+    ): Promise<
+      { ok: true; pluginId: string; version: string } | { ok: false; error: string }
+    > => {
+      const spec = parseGithubPluginSpec(payload?.github || '')
+      if (!spec) return { ok: false, error: 'invalid_github_spec' }
+      const storeRoot = path.join(app.getPath('userData'), 'plugins', 'packages')
+      await fs.mkdir(storeRoot, { recursive: true })
+      const r = await installPluginFromGithub({
+        owner: spec.owner,
+        repo: spec.repo,
+        ref: payload?.ref,
+        pluginsParentDir: storeRoot,
+      })
+      if (!r.ok) return r
+      pluginPreferencesStore.setPluginEnabled(r.pluginId, true)
+      await pluginRegistry.initPlugins()
+      mainWindow?.webContents.send('plugins:preferencesChanged')
+      return { ok: true, pluginId: r.pluginId, version: r.version }
+    }
+  )
 
-      if (conversationId) {
-        const conversation = await conversationStore.get(conversationId)
-        if (conversation) {
-          conversationSettings = conversation.settings
-        }
-      }
+  ipcMain.handle(
+    'plugins:installFromUrl',
+    async (
+      _ev,
+      payload: { url: string }
+    ): Promise<
+      { ok: true; pluginId: string; version: string } | { ok: false; error: string }
+    > => {
+      const url = String(payload?.url || '').trim()
+      if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'invalid_url' }
+      const storeRoot = path.join(app.getPath('userData'), 'plugins', 'packages')
+      await fs.mkdir(storeRoot, { recursive: true })
+      const r = await installPluginFromUrl({ url, pluginsParentDir: storeRoot })
+      if (!r.ok) return r
+      pluginPreferencesStore.setPluginEnabled(r.pluginId, true)
+      await pluginRegistry.initPlugins()
+      mainWindow?.webContents.send('plugins:preferencesChanged')
+      return { ok: true, pluginId: r.pluginId, version: r.version }
+    }
+  )
 
-      const templateRef =
-        conversationSettings?.templateName || config.defaultTemplateName
-      const template = templateStore.resolveTemplate(templateRef)
-      let rolePrompt: string
-      if (template?.isBuiltIn && template.id.startsWith('builtin_')) {
-        const key = template.id.slice('builtin_'.length)
-        rolePrompt = getBuiltinRolePrompt(key, locale)
-      } else {
-        rolePrompt = template?.rolePrompt || getFallbackRolePrompt(locale)
-      }
+  ipcMain.handle(
+    'plugins:installFromRelease',
+    async (
+      _ev,
+      payload: { github: string; tag: string; asset: string }
+    ): Promise<
+      { ok: true; pluginId: string; version: string } | { ok: false; error: string }
+    > => {
+      const spec = parseGithubPluginSpec(payload?.github || '')
+      if (!spec) return { ok: false, error: 'invalid_github_spec' }
+      const tag = String(payload?.tag || '').trim()
+      const asset = String(payload?.asset || '').trim()
+      if (!tag || !asset) return { ok: false, error: 'missing_tag_or_asset' }
+      const url = githubReleaseAssetUrl(spec.owner, spec.repo, tag, asset)
+      const storeRoot = path.join(app.getPath('userData'), 'plugins', 'packages')
+      await fs.mkdir(storeRoot, { recursive: true })
+      const r = await installPluginFromUrl({ url, pluginsParentDir: storeRoot })
+      if (!r.ok) return r
+      pluginPreferencesStore.setPluginEnabled(r.pluginId, true)
+      await pluginRegistry.initPlugins()
+      mainWindow?.webContents.send('plugins:preferencesChanged')
+      return { ok: true, pluginId: r.pluginId, version: r.version }
+    }
+  )
 
-      const content = await pluginRegistry.runMessageSend(message)
-      const historyForModel = pluginRegistry.patchHistoryLastUserContent(
-        history,
-        content
+  ipcMain.handle(
+    'agent:submitUserText',
+    async (
+      _ev,
+      opts: { conversationId: string; text: string; userMessageId?: string }
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!agentRuntime) return { ok: false, error: 'agent_not_ready' }
+      const text = String(opts?.text || '').trim()
+      const conversationId = String(opts?.conversationId || '').trim()
+      if (!conversationId || !text) return { ok: false, error: 'invalid_input' }
+      const ok = await agentRuntime.bus.enqueue(
+        createAgentEvent({
+          type: CORE_EVENT.USER_TEXT,
+          source: 'kernel',
+          conversationId,
+          payload: {
+            text,
+            ...(opts.userMessageId ? { userMessageId: opts.userMessageId } : {}),
+          },
+        })
       )
+      return ok ? { ok: true } : { ok: false, error: 'enqueue_failed' }
+    }
+  )
 
-      if (conversationId) {
-        const prior = messageStore.getByConversation(conversationId)
-        const conv = await conversationStore.get(conversationId)
-        if (
-          prior.length === 0 &&
-          conv &&
-          isDefaultConversationTitle(conv.title)
-        ) {
-          await conversationStore.update(conversationId, {
-            title: titleFromFirstUserMessage(content, locale),
-          })
-        }
-
-        // 立即把用户消息落盘，避免渲染层拉取时拿到空列表覆盖“乐观消息”
-        const userMessage: ChatMessage = {
-          id: `msg_${Date.now()}`,
-          role: 'user',
-          content,
-          createdAt: Date.now(),
-        }
-        messageStore.add(conversationId, userMessage)
-      }
-
-      const response = await chatCore.sendMessage(
-        content,
-        historyForModel,
-        importantInfo,
-        config,
-        conversationSettings,
-        rolePrompt
+  ipcMain.handle(
+    'agent:activityPing',
+    async (_ev, conversationId?: string): Promise<{ ok: boolean }> => {
+      if (!agentRuntime || !conversationId) return { ok: true }
+      void agentRuntime.bus.enqueue(
+        createAgentEvent({
+          type: CORE_EVENT.USER_ACTIVITY,
+          source: 'kernel',
+          conversationId,
+          payload: {},
+        })
       )
-
-      let replyOut = response.reply
-      replyOut = await pluginRegistry.runMessageReceive(replyOut)
-
-      for (const t of response.triggers || []) {
-        await pluginRegistry.runOnTrigger(t)
-      }
-
-      if (conversationId) {
-        const assistantMessage: ChatMessage = {
-          id: `msg_${Date.now() + 1}`,
-          role: 'assistant',
-          content: replyOut,
-          createdAt: Date.now(),
-        }
-        messageStore.add(conversationId, assistantMessage)
-
-        // Merge AI-extracted important info into conversation memory (session-level).
-        const newMemory = (response.important_info || []).filter(Boolean)
-        if (newMemory.length > 0) {
-          const conversation = await conversationStore.get(conversationId)
-          if (conversation) {
-            const existing = conversation.memory || []
-            const merged = Array.from(new Set([...existing, ...newMemory]))
-            await conversationStore.update(conversationId, { memory: merged })
-          }
-        }
-        await pluginRegistry.runMemoryUpdate(newMemory)
-      }
-
-      return {
-        ...response,
-        reply: replyOut,
-      }
+      return { ok: true }
     }
   )
 
@@ -283,10 +315,10 @@ function setupIPC() {
   ipcMain.handle(
     'config:validate',
     async (event, config: GlobalSettings): Promise<boolean> => {
-      if (!chatCore) {
-        throw new Error('ChatCore not initialized')
+      if (!agentRuntime) {
+        throw new Error('Agent runtime not initialized')
       }
-      return await chatCore.validateConfig(config)
+      return await agentRuntime.modelTurn.validateConfig(config)
     }
   )
 

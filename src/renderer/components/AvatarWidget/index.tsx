@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AvatarEngineIn, AvatarEngineOut } from '@/avatar/engine.worker'
-import type { PluginDispatchMessage, PAvatarPackResolved } from '@shared'
-import { pavatarRendererLog } from '@/lib/pavatar-debug'
+import type { AssetPackResolved, PluginDispatchMessage } from '@shared'
+import { pluginAssetsRendererLog } from '@/lib/plugin-assets-debug'
+import { getPluginResolvedAssetPack } from '@/api'
 
 type EngineState = {
   ready: boolean
@@ -47,7 +48,7 @@ function formatHistoryTime(ts: number): string {
   }
 }
 
-export default function AvatarWidget() {
+export default function AvatarWidget({ pluginId }: { pluginId: string }) {
   const workerRef = useRef<Worker | null>(null)
   const rafRef = useRef<number | null>(null)
   const [state, setState] = useState<EngineState>(DEFAULT_STATE)
@@ -57,27 +58,55 @@ export default function AvatarWidget() {
   const atlasReadyRef = useRef(false)
   const idleReadyRef = useRef(false)
 
-  const [pack, setPack] = useState<PAvatarPackResolved | null>(null)
+  const [pack, setPack] = useState<AssetPackResolved | null>(null)
   const [packChecked, setPackChecked] = useState(false)
   /** UI zoom only; manifest tile sizes define source crop geometry. */
   const [displayScale, setDisplayScale] = useState(DISPLAY_SCALE_DEFAULT)
   const [moodHistory, setMoodHistory] = useState<MoodHistoryEntry[]>([])
   const [railOpen, setRailOpen] = useState(true)
   /** null = 尚未从主进程拉取插件列表 */
-  const [pavatarPluginEnabled, setPavatarPluginEnabled] = useState<boolean | null>(null)
+  const [targetPluginEnabled, setTargetPluginEnabled] = useState<boolean | null>(null)
+
+  const resolvePackFromConfig = async (): Promise<AssetPackResolved | null> => {
+    const cfg = await window.electronAPI.plugins.getConfig(pluginId)
+    const packId = typeof cfg.activePackId === 'string' ? cfg.activePackId.trim() : ''
+    const version = typeof cfg.activePackVersion === 'string' ? cfg.activePackVersion.trim() : ''
+    if (!packId || !version) return null
+    const base = `plugin-asset://${encodeURIComponent(packId)}/${encodeURIComponent(version)}`
+    const manifestUrl = `${base}/manifest.json`
+    const res = await fetch(manifestUrl)
+    if (!res.ok) return null
+    const m = (await res.json()) as any
+    if (!m || typeof m !== 'object') return null
+    if (typeof m.name !== 'string' || !m.idle || !m.atlas) return null
+    if (typeof m.idle.src !== 'string' || typeof m.atlas.src !== 'string') return null
+    return {
+      packId,
+      version,
+      name: m.name,
+      author: typeof m.author === 'string' ? m.author : undefined,
+      license: typeof m.license === 'string' ? m.license : undefined,
+      expressions:
+        m.expressions && typeof m.expressions === 'object' ? (m.expressions as Record<string, { row: number; col: number }>) : undefined,
+      idle: m.idle,
+      atlas: m.atlas,
+      idleUrl: `${base}/${m.idle.src.replace(/\\/g, '/')}`,
+      atlasUrl: `${base}/${m.atlas.src.replace(/\\/g, '/')}`,
+    }
+  }
 
   useEffect(() => {
     const refresh = async () => {
       try {
         const list = await window.electronAPI.plugins.list?.()
         if (!list) {
-          setPavatarPluginEnabled(true)
+          setTargetPluginEnabled(true)
           return
         }
-        const row = list.find((x) => x.id === 'com.proactiveai.pavatar')
-        setPavatarPluginEnabled(row?.enabled ?? true)
+        const row = list.find((x) => x.id === pluginId)
+        setTargetPluginEnabled(row?.enabled ?? true)
       } catch {
-        setPavatarPluginEnabled(true)
+        setTargetPluginEnabled(true)
       }
     }
     void refresh()
@@ -138,51 +167,44 @@ export default function AvatarWidget() {
   }, [])
 
   useEffect(() => {
-    if (pavatarPluginEnabled === null) return
-    if (pavatarPluginEnabled === false) {
+    if (targetPluginEnabled === null) return
+    if (targetPluginEnabled === false) {
       setPack(null)
       setPackChecked(true)
       return
     }
 
-    let off: (() => void) | undefined
-    const api = window.electronAPI
-    if (api?.pavatar?.getActivePack) {
-      void api.pavatar
-        .getActivePack()
-        .then((p) => {
-          pavatarRendererLog('getActivePack result', {
-            hasPack: !!p,
-            packId: p?.packId ?? null,
-            version: p?.version ?? null,
-          })
-          if (!p) {
-            pavatarRendererLog(
-              'branch: no pack — widget stays hidden. Install under userData/pavatar-packs/<id>/<ver>/manifest.json'
-            )
-          }
-          setPack(p)
+    let mounted = true
+    const refresh = async () => {
+      try {
+        let p = await resolvePackFromConfig()
+        if (!p) {
+          p = await getPluginResolvedAssetPack(pluginId)
+        }
+        if (!mounted) return
+        pluginAssetsRendererLog('avatar pack resolved', {
+          hasPack: !!p,
+          packId: p?.packId ?? null,
+          version: p?.version ?? null,
         })
-        .catch((e) => {
-          console.error('[AvatarWidget] getActivePack failed', e)
-          setPack(null)
-        })
-        .finally(() => setPackChecked(true))
-      off = api.pavatar.onActivePackChanged?.(() => {
-        void api.pavatar
-          .getActivePack()
-          .then((p) => {
-            pavatarRendererLog('getActivePack after activePackChanged', p?.packId ?? null)
-            setPack(p)
-          })
-          .catch((e) => console.error('[AvatarWidget] getActivePack failed', e))
-      })
-    } else {
-      pavatarRendererLog('branch: window.electronAPI.pavatar missing — not running in Electron?')
-      setPackChecked(true)
+        setPack(p)
+      } catch (e) {
+        if (!mounted) return
+        console.error('[AvatarWidget] resolvePackFromConfig failed', e)
+        setPack(null)
+      } finally {
+        if (mounted) setPackChecked(true)
+      }
     }
-    return () => off?.()
-  }, [pavatarPluginEnabled])
+    void refresh()
+    const off = window.electronAPI.plugins.onPreferencesChanged?.(() => {
+      void refresh()
+    })
+    return () => {
+      mounted = false
+      off?.()
+    }
+  }, [targetPluginEnabled])
 
   useEffect(() => {
     if (!pack) {
@@ -306,13 +328,13 @@ export default function AvatarWidget() {
   useEffect(() => {
     const api = window.electronAPI
     if (!api?.plugins?.onDispatch) {
-      pavatarRendererLog('branch: plugins.onDispatch missing')
+      pluginAssetsRendererLog('branch: plugins.onDispatch missing')
       return
     }
-    pavatarRendererLog('subscribed to plugins.onDispatch')
+    pluginAssetsRendererLog('subscribed to plugins.onDispatch')
     const off = api.plugins.onDispatch((m: PluginDispatchMessage) => {
       if (!m || m.v !== 1) return
-      if (m.pluginId !== 'com.proactiveai.pavatar') return
+      if (m.pluginId !== pluginId) return
 
       if (m.type === 'AVATAR_SET_MOOD') {
         const row: MoodHistoryEntry = {
@@ -334,10 +356,10 @@ export default function AvatarWidget() {
 
       const wk = workerRef.current
       if (!wk) {
-        pavatarRendererLog('dispatch ignored: worker not running (no pack?)', m.type)
+        pluginAssetsRendererLog('dispatch ignored: worker not running (no pack?)', m.type)
         return
       }
-      pavatarRendererLog('dispatch to worker', m.type, m)
+      pluginAssetsRendererLog('dispatch to worker', m.type, m)
       if (m.type === 'AVATAR_SET_MOOD') {
         const msg: AvatarEngineIn = { v: 1, type: 'SET_MOOD', mood: m.mood }
         wk.postMessage(msg)
@@ -397,14 +419,40 @@ export default function AvatarWidget() {
     ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, w, h)
   }, [idleSpec, pack, rowForAnimation, spriteSpec, state.animation, state.frame])
 
-  if (pavatarPluginEnabled === false) {
+  if (targetPluginEnabled === false) {
     return null
   }
-  if (pavatarPluginEnabled === null) {
+  if (targetPluginEnabled === null) {
     return null
   }
-  if (!packChecked || !pack) {
+  if (!packChecked) {
     return null
+  }
+  if (!pack) {
+    return (
+      <aside
+        className={cn(
+          'flex h-full min-h-0 w-[min(15rem,28vw)] shrink-0 flex-col justify-center',
+          'border-l border-[color:var(--app-border-strong)] bg-[var(--app-surface)] p-3'
+        )}
+        aria-label="avatar-pack-missing"
+      >
+        <p className="text-xs font-medium text-[var(--app-fg)]">形象资源未就绪</p>
+        <p className="mt-2 text-[11px] leading-relaxed text-[var(--app-muted)]">
+          插件{' '}
+          <code className="rounded bg-[var(--app-input-bg)] px-1">{pluginId}</code>{' '}
+          需要自备形象资源包：放在用户目录{' '}
+          <code className="rounded bg-[var(--app-input-bg)] px-1">plugin-asset-packs</code>{' '}
+          下的{' '}
+          <code className="rounded bg-[var(--app-input-bg)] px-1">&lt;packId&gt;/&lt;version&gt;/</code>{' '}
+          目录中（路径中的 packId 须与 manifest 一致），保证{' '}
+          <code className="rounded bg-[var(--app-input-bg)] px-1">manifest.json</code>{' '}
+          里的 <code className="rounded bg-[var(--app-input-bg)] px-1">packId</code> 等于该插件 id，或以{' '}
+          <code className="rounded bg-[var(--app-input-bg)] px-1">{pluginId}.</code>
+          为前缀。扫描阶段只校验 manifest 结构是否符合宿主约定；具体资源能否加载，由渲染侧按 manifest 路径尝试读取（缺失时面板内会报错）。
+        </p>
+      </aside>
+    )
   }
 
   if (!railOpen) {

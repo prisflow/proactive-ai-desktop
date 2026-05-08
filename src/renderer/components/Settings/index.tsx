@@ -204,7 +204,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
       setAddTemplateError(t('settings.errRoleRequired'))
       return
     }
-    if (templates.some((t) => t.name === name)) {
+    if (templates.some((tpl) => tpl.name === name)) {
       setAddTemplateError(t('settings.errDuplicateName'))
       return
     }
@@ -404,15 +404,15 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                       <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium text-[var(--app-fg)]">{p.name}</span>
-                          {p.builtin && (
-                            <span className="rounded-md bg-[var(--app-hover-strong)] px-1.5 py-0.5 text-[10px] text-[var(--app-muted)]">
-                              {t('settings.pluginsBuiltin')}
-                            </span>
-                          )}
                         </div>
                         <p className="truncate text-[11px] text-[var(--app-muted)]">
                           {p.id} · v{p.version}
                         </p>
+                        {p.error ? (
+                          <p className="text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+                            {p.error}
+                          </p>
+                        ) : null}
                       </div>
                       <Switch
                         checked={p.enabled}
@@ -585,6 +585,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                   onValueChange={([value]) => handleUpdateGlobal('defaultMaxTriggers', value)}
                 />
               </div>
+
 
               <div className="flex items-center justify-between gap-4 rounded-xl border border-[color:var(--app-border-strong)] bg-[var(--app-subtle-section)] px-4 py-3">
                 <Label htmlFor="settings-proactive" className="cursor-pointer text-[var(--app-fg)]">
