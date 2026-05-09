@@ -85,7 +85,6 @@ const zh = {
     proactiveInterval: '主动触发间隔',
     seconds: '秒',
     proactiveToggle: '启用主动对话',
-    maxTriggers: '最大主动触发次数',
     validateSave: '验证并保存配置',
     saveOnly: '仅保存配置',
     saving: '保存中…',
@@ -142,7 +141,7 @@ const en = {
     save: 'Save',
   },
   chat: {
-    heroTitle: 'Hi, I'm ProactiveAI',
+    heroTitle: "Hi, I'm ProactiveAI",
     heroSubtitle: 'What can I help you with today?',
     emptyHeading: 'Start a new chat',
     emptyHint: 'Send your first message in the box below.',
@@ -187,7 +186,7 @@ const en = {
     pluginsLoading: 'Loading plugins…',
     pluginsEmpty: 'Main process returned an empty list (unexpected). Restart the app or check the console.',
     pluginsBridgeMissing:
-      'Preload is missing plugins.list (common if dev wasn't restarted). Fully quit Electron, then run npm run dev again.',
+      "Preload is missing plugins.list (common if dev wasn't restarted). Fully quit Electron, then run npm run dev again.",
     pluginsIpcFailed: 'Could not load the plugin list from the main process. Check DevTools console or restart.',
     appearance: 'Appearance',
     themePlaceholder: 'Theme',
@@ -209,7 +208,6 @@ const en = {
     proactiveInterval: 'Proactive interval',
     seconds: 's',
     proactiveToggle: 'Enable proactive messages',
-    maxTriggers: 'Max proactive triggers',
     validateSave: 'Validate & save',
     saveOnly: 'Save only',
     saving: 'Saving…',

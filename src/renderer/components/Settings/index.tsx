@@ -571,22 +571,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                 />
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-baseline justify-between gap-2">
-                  <Label className="text-[var(--app-fg)]">{t('settings.maxTriggers')}</Label>
-                  <span className="text-xs tabular-nums text-[var(--app-muted)]">
-                    {config.defaultMaxTriggers || 3}
-                  </span>
-                </div>
-                <Slider
-                  min={1}
-                  max={5}
-                  value={[config.defaultMaxTriggers || 3]}
-                  onValueChange={([value]) => handleUpdateGlobal('defaultMaxTriggers', value)}
-                />
-              </div>
-
-
               <div className="flex items-center justify-between gap-4 rounded-xl border border-[color:var(--app-border-strong)] bg-[var(--app-subtle-section)] px-4 py-3">
                 <Label htmlFor="settings-proactive" className="cursor-pointer text-[var(--app-fg)]">
                   {t('settings.proactiveToggle')}

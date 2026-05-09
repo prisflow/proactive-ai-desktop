@@ -106,6 +106,10 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  if (agentRuntime) {
+    agentRuntime.deps.traceLogger.stop()
+    agentRuntime.deps.idleSampler.stop()
+  }
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -281,22 +285,6 @@ function setupIPC() {
         })
       )
       return ok ? { ok: true } : { ok: false, error: 'enqueue_failed' }
-    }
-  )
-
-  ipcMain.handle(
-    'agent:activityPing',
-    async (_ev, conversationId?: string): Promise<{ ok: boolean }> => {
-      if (!agentRuntime || !conversationId) return { ok: true }
-      void agentRuntime.bus.enqueue(
-        createAgentEvent({
-          type: CORE_EVENT.USER_ACTIVITY,
-          source: 'kernel',
-          conversationId,
-          payload: {},
-        })
-      )
-      return { ok: true }
     }
   )
 

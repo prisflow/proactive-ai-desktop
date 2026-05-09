@@ -6,7 +6,6 @@ export interface WorldStateV1 {
   v: 1
   lastUserActivityAt: number
   lastAssistantMessageAt?: number
-  proactiveCooldownUntil?: number
   activeSubagentRunId?: string
 }
 

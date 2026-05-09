@@ -22,7 +22,7 @@ import { buildSystemPrompt } from '../../shared/config'
 export type OrchestratorAction =
   | { type: 'memory_sync'; memory: string[]; nextAction?: OrchestratorAction }
   | { type: 'tool_call'; toolCalls: ToolCall[]; conversationId: string; userMessage?: string; history?: ChatMessage[]; importantInfo?: string[]; rolePrompt?: string; conversationSettings?: ConversationSettings }
-  | { type: 'delegate'; conversationId: string; userMessage: string; history: ChatMessage[]; importantInfo: string[]; rolePrompt: string; conversationSettings: ConversationSettings | undefined; globalSettings: GlobalSettings; isProactive?: boolean; proactiveCooldownUntil?: number }
+  | { type: 'delegate'; conversationId: string; userMessage: string; history: ChatMessage[]; importantInfo: string[]; rolePrompt: string; conversationSettings: ConversationSettings | undefined; globalSettings: GlobalSettings; isProactive?: boolean }
   | { type: 'done' }
 
 // ─────────────────────────────────────────────
@@ -52,14 +52,6 @@ export async function pipelineRouteEvent(
     }
     case CORE_EVENT.MEMORY_SYNCED: {
       ctx.memorySyncedPayload = envelope.payload
-      break
-    }
-    case CORE_EVENT.USER_ACTIVITY: {
-      const cid = envelope.conversationId
-      if (cid) {
-        await deps.worldStore.patch(cid, { lastUserActivityAt: Date.now() })
-      }
-      deps.idleSampler.reset()
       break
     }
     case CORE_EVENT.IDLE_SAMPLE: {
@@ -209,10 +201,6 @@ export async function pipelineOrchestratorThink(
     await deps.worldStore.patch(cid, {
       activeSubagentRunId: null as unknown as undefined,
       lastAssistantMessageAt: Date.now(),
-      proactiveCooldownUntil:
-        typeof p?.proactiveCooldownUntil === 'number'
-          ? p.proactiveCooldownUntil
-          : Date.now() + 15_000,
     })
 
     return traceDone(deps, thinkRunId)
@@ -229,7 +217,6 @@ export async function pipelineOrchestratorThink(
     return traceEnd(deps, thinkRunId, action)
   }
 
-  // ── USER_ACTIVITY：仅更新时间戳，已在 route_event 处理 ──
   // ── 其他事件 ──
   return traceDone(deps, thinkRunId)
   } catch (e) {
@@ -351,7 +338,6 @@ export async function pipelineExecuteDelegation(
     userTask: action.userMessage,
     globalSettings: action.globalSettings,
     isProactive: action.isProactive,
-    proactiveCooldownUntil: action.proactiveCooldownUntil,
     importantInfo: action.importantInfo,
   })
 
@@ -671,18 +657,6 @@ async function pipelineIdleThink(deps: AgentRuntimeDeps): Promise<OrchestratorAc
   const proactiveEnabled = conv?.settings?.proactiveEnabled ?? config.proactiveEnabled
   if (!proactiveEnabled) return { type: 'done' }
 
-  const intervalSec =
-    conv?.settings?.proactiveInterval ?? config.defaultProactiveInterval ?? 60
-  const intervalMs = Math.max(10, intervalSec) * 1000
-
-  const ws = await deps.worldStore.get(conversationId)
-  if (Date.now() - ws.lastUserActivityAt < intervalMs) return { type: 'done' }
-  if (ws.proactiveCooldownUntil && Date.now() < ws.proactiveCooldownUntil) return { type: 'done' }
-
-  await deps.worldStore.patch(conversationId, {
-    proactiveCooldownUntil: Date.now() + Math.min(intervalMs, 120_000),
-  })
-
   const locale = normalizeLocale(config.locale)
   const templateRef = conv?.settings?.templateName || config.defaultTemplateName || 'default'
   const template = templateStore.get(templateRef)
@@ -700,8 +674,6 @@ async function pipelineIdleThink(deps: AgentRuntimeDeps): Promise<OrchestratorAc
       ? '[System] The user has been idle. If appropriate, send one brief, caring message.'
       : '【系统】用户已安静一段时间，若合适请发一条简短、自然的主动关心消息。'
 
-  const nextCooldown = Date.now() + intervalMs
-
   return {
     type: 'delegate',
     conversationId,
@@ -712,7 +684,6 @@ async function pipelineIdleThink(deps: AgentRuntimeDeps): Promise<OrchestratorAc
     conversationSettings: conv?.settings,
     globalSettings: config,
     isProactive: true,
-    proactiveCooldownUntil: nextCooldown,
   }
 }
 
@@ -727,5 +698,4 @@ export type SubAgentFinishedPayload = {
   conversationId: string
   importantInfo?: string[]
   isProactive?: boolean
-  proactiveCooldownUntil?: number
 }

@@ -1,5 +1,4 @@
 import type { AppLocale } from './locale'
-import { DEFAULT_MAX_TRIGGERS } from './constants'
 
 const BUILTIN_KEYS = [
   'default',
@@ -57,18 +56,8 @@ export function modelEmptyResponseMessage(locale: AppLocale): string {
     : '错误：模型返回了空响应（choices 为空），请稍后重试或更换模型/Base URL。'
 }
 
-function systemPromptTailZh(maxTriggers: number): string {
-  return `每次回复用户后，你需要决定：
-1. 即时回复用户的问题
-2. 是否需要主动发消息给用户？
-3. 如果要，设置多个触发点（可选，最多${maxTriggers}个）
-
-重要规则：
-- 用户可能在忙，不要打扰太频繁
-- 主动发消息是为了关心用户或延续有价值的对话
-- 如果没有特别的事情要说，建议不要主动打扰
-
-重要信息提取规则：
+function systemPromptTailZh(): string {
+  return `重要信息提取规则：
 - 只提取当前用户消息中的重要信息（只看最后一条用户消息）
 - 不要回顾历史对话
 - 如果当前消息没什么特别的，important_info返回空数组
@@ -77,40 +66,20 @@ function systemPromptTailZh(maxTriggers: number): string {
 - 必须返回纯JSON格式，不要使用markdown代码块标记（不要用\`\`\`json）
 - 不要添加任何额外的文字说明
 - 直接返回JSON对象
-- 所有字段必须存在：reply, triggers, next_api_call_seconds, important_info
-- triggers数组最多包含${maxTriggers}个元素
-- 每个trigger必须包含seconds和message字段
-- next_api_call_seconds必须是正整数
+- 所有字段必须存在：reply, important_info
 
 返回格式示例：
 {
     "reply": "你对用户的即时回复内容",
-    "triggers": [
-        {"seconds": 10, "message": "如果10秒后用户没回复，说..."},
-        {"seconds": 30, "message": "如果30秒后用户还没回复，说..."}
-    ],
-    "next_api_call_seconds": 60,
     "important_info": ["当前用户消息中的关键信息"]
 }
 
 注意：
-- reply是即时回复，triggers是预设的主动消息列表
-- next_api_call_seconds是所有triggers完成后再次调用API的时间
 - important_info只提取当前用户消息中的信息，不要回顾历史`
 }
 
-function systemPromptTailEn(maxTriggers: number): string {
-  return `After each reply to the user, you must decide:
-1. Answer the user's question immediately.
-2. Whether you should proactively message the user again.
-3. If yes, set one or more trigger points (optional, at most ${maxTriggers}).
-
-Important rules:
-- The user may be busy; do not interrupt too often.
-- Proactive messages should show care or continue a valuable conversation.
-- If you have nothing meaningful to add, prefer not to proactively disturb the user.
-
-Important information extraction:
+function systemPromptTailEn(): string {
+  return `Important information extraction:
 - Extract important facts only from the current user message (the latest user message only).
 - Do not review earlier conversation history.
 - If the current message has nothing notable, return an empty array for important_info.
@@ -119,29 +88,18 @@ Response format requirements:
 - Return pure JSON only. Do not wrap it in markdown code fences (no \`\`\`json).
 - Do not add any extra explanatory text outside the JSON.
 - Return a single JSON object.
-- All fields must be present: reply, triggers, next_api_call_seconds, important_info.
-- The triggers array must contain at most ${maxTriggers} items.
-- Each trigger must have "seconds" and "message".
-- next_api_call_seconds must be a positive integer.
+- All fields must be present: reply, important_info.
 
 Example JSON shape:
 {
     "reply": "Your immediate reply to the user",
-    "triggers": [
-        {"seconds": 10, "message": "If the user has not replied after 10 seconds, say..."},
-        {"seconds": 30, "message": "If still no reply after 30 seconds, say..."}
-    ],
-    "next_api_call_seconds": 60,
     "important_info": ["Key facts from the current user message"]
 }
 
 Notes:
-- reply is the immediate answer; triggers is the list of scheduled proactive messages.
-- next_api_call_seconds is when to call the API again after all triggers have finished.
 - important_info must only reflect the current user message, not past turns.`
 }
 
-export function getSystemPromptTail(locale: AppLocale, maxTriggers: number): string {
-  const n = maxTriggers > 0 ? maxTriggers : DEFAULT_MAX_TRIGGERS
-  return locale === 'en-US' ? systemPromptTailEn(n) : systemPromptTailZh(n)
+export function getSystemPromptTail(locale: AppLocale): string {
+  return locale === 'en-US' ? systemPromptTailEn() : systemPromptTailZh()
 }

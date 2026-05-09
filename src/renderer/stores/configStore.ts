@@ -10,7 +10,6 @@ const DEFAULT_CONFIG: GlobalSettings = {
   baseURL: DEFAULT_BASE_URL,
   locale: 'zh-CN',
   defaultTemplateName: DEFAULT_TEMPLATE_NAME,
-  defaultMaxTriggers: 3,
   defaultProactiveInterval: 60,
   proactiveEnabled: true,
   theme: 'dark',

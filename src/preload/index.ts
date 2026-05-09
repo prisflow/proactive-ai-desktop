@@ -67,8 +67,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       userMessageId?: string
     }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('agent:submitUserText', opts),
-    activityPing: (conversationId: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('agent:activityPing', conversationId),
     onPush: (cb: (payload: unknown) => void) => {
       const handler = (_ev: unknown, payload: unknown) => cb(payload)
       ipcRenderer.on('agent:push', handler)

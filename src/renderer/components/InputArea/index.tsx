@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConversationStore } from '@/stores/conversationStore'
 import { useChatStore } from '@/stores/chatStore'
-import { submitUserText, getConfig, agentActivityPing } from '@/api'
+import { submitUserText, getConfig } from '@/api'
 import { GlobalSettings } from '@shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -15,7 +15,6 @@ export default function InputArea() {
   const [config, setConfig] = useState<GlobalSettings | null>(null)
   const [isMultiline, setIsMultiline] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const activityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { currentConversationId, createConversation, refreshConversationFromMain } =
     useConversationStore()
   const { addMessage, setLoading } = useChatStore()
@@ -31,14 +30,6 @@ export default function InputArea() {
     } catch (error) {
       console.error('Failed to load config:', error)
     }
-  }
-
-  const scheduleActivityPing = (conversationId: string | null) => {
-    if (!conversationId) return
-    if (activityTimerRef.current) clearTimeout(activityTimerRef.current)
-    activityTimerRef.current = setTimeout(() => {
-      void agentActivityPing(conversationId)
-    }, 400)
   }
 
   const handleSend = async () => {
@@ -129,7 +120,6 @@ export default function InputArea() {
             value={inputText}
             onChange={(e) => {
               setInputText(e.target.value)
-              scheduleActivityPing(currentConversationId)
             }}
             onKeyDown={handleKeyDown}
           />

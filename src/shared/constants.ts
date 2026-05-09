@@ -2,8 +2,6 @@ export const DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3.2"
 
 export const DEFAULT_BASE_URL = "https://api-inference.modelscope.cn/v1"
 
-export const DEFAULT_MAX_TRIGGERS = 3
-
 export const DEFAULT_PROACTIVE_INTERVAL = 60
 
 export const DEFAULT_PROACTIVE_ENABLED = true
@@ -29,11 +27,6 @@ export const RESPONSE_FORMAT_EXAMPLE = `{
     "reply": "你对用户的即时回复内容",
     "important_info": ["当前用户消息中的关键信息"]
 }`
-
-export const PROACTIVE_RULES = `重要规则：
-- 用户可能在忙，不要打扰太频繁
-- 主动发消息是为了关心用户或延续有价值的对话
-- 如果没有特别的事情要说，建议不要主动打扰`
 
 export const DEFAULT_SETTINGS = {
   proactiveInterval: DEFAULT_PROACTIVE_INTERVAL,

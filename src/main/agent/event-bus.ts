@@ -15,7 +15,10 @@ export class AgentEventBus {
     this.consumer = fn
   }
 
-  /** 插件与内核共用：先入钩子再交给编排器 */
+  /**
+   * 入队：校验 → 触发钩子 → 排入 drain 链串行消费。
+   * 只保证"已入队"，不等待消费者处理完毕（否则在 consumer 内部再次 enqueue 会死锁）。
+   */
   async enqueue(raw: unknown): Promise<boolean> {
     const validated = validateAgentEventEnvelope(raw)
     if (!validated) {
@@ -33,7 +36,7 @@ export class AgentEventBus {
     this.drain = job.catch((e) => {
       console.error('[agent-bus] consumer failed', e)
     })
-    await job
+    // 不 await job —— 入队即返回，消费由 drain 链异步串行完成
     return true
   }
 }

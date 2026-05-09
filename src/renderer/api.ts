@@ -61,7 +61,6 @@ declare global {
           text: string
           userMessageId?: string
         }) => Promise<{ ok: boolean; error?: string }>
-        activityPing: (conversationId: string) => Promise<{ ok: boolean }>
         onPush: (cb: (payload: AgentStreamPushV1) => void) => () => void
       }
       config: {
@@ -100,10 +99,6 @@ export async function submitUserText(opts: {
   userMessageId?: string
 }): Promise<{ ok: boolean; error?: string }> {
   return window.electronAPI.agent.submitUserText(opts)
-}
-
-export async function agentActivityPing(conversationId: string): Promise<void> {
-  void window.electronAPI.agent.activityPing(conversationId)
 }
 
 export function subscribeAgentPush(cb: (payload: AgentStreamPushV1) => void): () => void {

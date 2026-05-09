@@ -6,7 +6,6 @@ export interface GlobalSettings {
   locale?: 'zh-CN' | 'en-US'
   defaultTemplateName?: string
   defaultProactiveInterval?: number
-  defaultMaxTriggers?: number
   proactiveEnabled?: boolean
   theme?: 'light' | 'dark' | 'auto'
   fontSize?: number

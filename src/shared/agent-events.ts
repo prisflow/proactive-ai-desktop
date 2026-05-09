@@ -4,7 +4,6 @@
 
 export const CORE_EVENT = {
   USER_TEXT: 'core.user.text',
-  USER_ACTIVITY: 'core.user.activity',
   IDLE_SAMPLE: 'core.idle.sample',
   SUBAGENT_FINISHED: 'core.subagent.finished',
   TOOL_RESULT: 'core.tool.result',
