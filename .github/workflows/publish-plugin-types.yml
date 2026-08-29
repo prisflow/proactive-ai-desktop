@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
@@ -27,6 +26,6 @@ jobs:
       # setup-node 配 registry-url 后注入 NODE_AUTH_TOKEN，npm 用它认证 registry。
       - name: Publish to npm
         working-directory: plugin-types
-        run: npm publish --access public --provenance
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
