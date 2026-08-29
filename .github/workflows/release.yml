@@ -24,6 +24,9 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Pre-cache winCodeSign (skip mac/linux symlinks)
         shell: pwsh
         run: |
@@ -34,15 +37,14 @@ jobs:
             Invoke-WebRequest -Uri "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z" -OutFile $zip -UseBasicParsing
           }
           # 排除 darwin/linux（Windows 打包不需要），避免 symlink 创建权限问题
-          $seven = Get-ChildItem "D:\a\proactive-ai-desktop\proactive-ai-desktop\node_modules\.pnpm\7zip-bin*\node_modules\7zip-bin\win\x64\7za.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $seven = Get-ChildItem "$env:GITHUB_WORKSPACE\node_modules\.pnpm\7zip-bin*\node_modules\7zip-bin\win\x64\7za.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $seven) {
+            Write-Error "7za not found"
+          }
           if ($seven) {
             & $seven.FullName x -y "-o$cache" $zip "-x!darwin/*" "-x!linux/*" | Out-Null
-          } else {
-            Write-Error "7za not found in pnpm cache"
+            Write-Output "winCodeSign pre-extracted to $cache"
           }
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm run build
