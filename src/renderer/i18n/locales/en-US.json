@@ -1,0 +1,75 @@
+{
+  "conversation": {
+    "defaultTitle": "New chat"
+  },
+  "sidebar": {
+    "toggle": "Toggle sidebar",
+    "newChat": "New chat",
+    "recent": "Recent",
+    "convActions": "Conversation actions",
+    "rename": "Rename",
+    "delete": "Delete",
+    "settings": "Settings",
+    "renameTitle": "Rename conversation",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Conversation title",
+    "cancel": "Cancel",
+    "save": "Save",
+    "systemLogs": "System Logs"
+  },
+  "logs": {
+    "title": "System Logs",
+    "tokenTitle": "Token Usage",
+    "weekly": "Weekly",
+    "hourly": "Today by Hour",
+    "toolSplit": "Context vs Tools",
+    "inputHit": "Input (cache hit)",
+    "inputMiss": "Input (cache miss)",
+    "output": "Output",
+    "hitRate": "Hit rate",
+    "total": "Total",
+    "clear": "Clear",
+    "range7": "Last 7 days",
+    "range14": "Last 14 days",
+    "range30": "Last 30 days"
+  },
+  "chat": {
+    "heroTitle": "Hi, I'm ProactiveAI",
+    "heroSubtitle": "What can I help you with today?",
+    "emptyHeading": "Start a new chat",
+    "emptyHint": "Send your first message in the box below."
+  },
+  "input": {
+    "placeholder": "Type a message",
+    "send": "Send",
+    "disclaimer": "ProactiveAI may show inaccurate information, including about people. Please verify responses.",
+    "needApiKey": "Please set your API Key in Settings first.",
+    "sendFailed": "Failed to send message",
+    "errorPrefix": "Error: "
+  },
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize or restore",
+    "close": "Close"
+  },
+  "settings": {
+    "title": "Settings",
+    "close": "Close",
+    "language": "Language",
+    "langZh": "简体中文",
+    "langEn": "English",
+    "appearance": "Appearance",
+    "themePlaceholder": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeAuto": "System",
+    "themeHint": "Changes apply immediately; click Save to persist to disk.",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Enter API Key",
+    "model": "Model",
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "Leave empty for default",
+    "fontSize": "Font Size",
+    "fontSizeHint": "px"
+  }
+}

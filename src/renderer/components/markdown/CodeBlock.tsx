@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import hljs from 'highlight.js'
 
+/** 转义 HTML 特殊字符，防止 XSS */
 function escapeHtml(s: string) {
   return s
     .replaceAll('&', '&amp;')
@@ -11,6 +12,13 @@ function escapeHtml(s: string) {
     .replaceAll("'", '&#039;')
 }
 
+/**
+ * 代码块组件（markdown 中 ` ``` ` 渲染）。
+ * - 使用 highlight.js 进行语法高亮
+ * - 有语言标签则用指定语言高亮，否则自动检测
+ * - 提供复制按钮（navigator.clipboard）
+ * - solarized light 配色，与全局样式一致
+ */
 export function CodeBlock({
   code,
   language,
@@ -43,7 +51,7 @@ export function CodeBlock({
       setCopied(true)
       window.setTimeout(() => setCopied(false), 900)
     } catch {
-      // Ignore; clipboard may be blocked
+      // 剪贴板访问被拒绝时静默失败
     }
   }, [code])
 
@@ -70,4 +78,3 @@ export function CodeBlock({
     </div>
   )
 }
-

@@ -1,27 +1,26 @@
-import { Menu, Plus, MessageSquare, Settings, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { Menu, Plus, MessageSquare, Settings, FileText, Ellipsis, Pencil, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSidebar } from '@/hooks/useSidebar'
+import { useSidebarStore } from '@/stores/sidebarStore'
 import { useConversationStore } from '@/stores/conversationStore'
 import { useChatStore } from '@/stores/chatStore'
-import type { ChatMessage, Conversation } from '@shared'
-import { cn } from '@/lib/utils'
-import { useState } from 'react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
+import type { Conversation } from '@shared'
 
 interface SidebarProps {
   onOpenSettings: () => void
+  onOpenLogs: () => void
 }
 
-/** 菜单左缘与 ⋮ 按钮左缘对齐：bottom + align start */
+/**
+ * 对话行的省略号操作菜单（重命名 / 删除）。
+ * 仅在行 hover 或菜单展开时可见。
+ */
 function ConversationMoreMenu({
   open,
   onOpenChange,
@@ -47,11 +46,11 @@ function ConversationMoreMenu({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="cursor-pointer rounded-full p-2 text-[var(--app-muted)] outline-none transition-colors hover:bg-[var(--app-hover-strong)] hover:text-[var(--app-fg)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-0"
+            className="cursor-pointer rounded-full p-1.5 text-[var(--app-muted)] outline-none transition-colors hover:bg-[var(--app-hover-strong)] hover:text-[var(--app-fg)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-0"
             aria-label={t('sidebar.convActions')}
             onClick={(e) => e.stopPropagation()}
           >
-            <MoreVertical size={16} strokeWidth={2} />
+            <Ellipsis size={16} strokeWidth={2} />
           </button>
         </DropdownMenuTrigger>
       </div>
@@ -81,32 +80,34 @@ function ConversationMoreMenu({
   )
 }
 
-export default function Sidebar({ onOpenSettings }: SidebarProps) {
+/**
+ * 左侧侧边栏。
+ * - 顶部：菜单折叠按钮 + 新建对话
+ * - 中间：对话列表（点击切换 / 行 hover 出省略号菜单：重命名、删除）
+ * - 底部：系统日志入口 + 设置入口
+ * - 支持展开/折叠（通过 sidebarStore），展开时 288px，折叠时 64px
+ */
+export default function Sidebar({ onOpenSettings, onOpenLogs }: SidebarProps) {
   const { t } = useTranslation()
-  const { isOpen, toggle } = useSidebar()
-  const {
-    conversations,
-    currentConversationId,
-    createConversation,
-    setCurrentConversation,
-    deleteConversation,
-    updateConversation,
-  } = useConversationStore()
-  const { messages, clearConversation } = useChatStore()
+  const { isOpen, toggle } = useSidebarStore()
+  const { conversations, currentConversationId, createConversation, setCurrentConversation, deleteConversation, renameConversation } =
+    useConversationStore()
+  const { clearConversation } = useChatStore()
 
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null)
   const [renameConvId, setRenameConvId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
 
-  const handleNewConversation = async () => {
+  const handleNew = async () => {
     await createConversation()
   }
 
-  const handleSelectConversation = (id: string) => {
-    setCurrentConversation(id)
-  }
-
-  const handleDeleteConversation = async (id: string) => {
+  const handleDelete = async (id: string) => {
+    // 删除正在流式的对话时先中断，避免后台继续生成并写入已删除对话
+    if (useChatStore.getState().busyConversations[id]) {
+      const { chatAbort } = await import('@/api')
+      await chatAbort(id)
+    }
     await deleteConversation(id)
     clearConversation(id)
   }
@@ -119,20 +120,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const handleRenameSave = async () => {
     if (!renameConvId) return
     const title = renameTitle.trim() || t('conversation.defaultTitle')
-    await updateConversation(renameConvId, { title })
+    await renameConversation(renameConvId, title)
     setRenameConvId(null)
-  }
-
-  const getConversationTitle = (id: string) => {
-    const convMessages = messages[id]
-    if (convMessages && convMessages.length > 0) {
-      const firstUserMessage = convMessages.find((m: ChatMessage) => m.role === 'user')
-      if (firstUserMessage) {
-        return firstUserMessage.content.slice(0, 20) + (firstUserMessage.content.length > 20 ? '...' : '')
-      }
-    }
-    const conv = conversations.find((c: Conversation) => c.id === id)
-    return conv?.title || t('conversation.defaultTitle')
   }
 
   return (
@@ -140,100 +129,67 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       <aside
         className={`${
           isOpen ? 'w-72' : 'w-16'
-        } flex flex-col border-r border-[color:var(--app-border)] bg-[var(--app-surface)] transition-[width] duration-300 ease-in-out`}
+        } flex flex-col border-r border-[color:var(--app-border)] bg-[var(--app-surface)] transition-[width] duration-300`}
       >
         <div className="sticky top-0 z-10 h-28 bg-[var(--app-surface-muted)] backdrop-blur-md">
           <div className="flex h-full flex-col justify-between px-3 py-3">
-            <button
-              onClick={toggle}
-              className="cursor-pointer self-start rounded-full p-2 transition-colors hover:bg-[var(--app-hover-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-0"
-              aria-label={t('sidebar.toggle')}
-              title={t('sidebar.toggle')}
-            >
+            <button onClick={toggle} className="self-start rounded-full p-2 hover:bg-[var(--app-hover-strong)]">
               <Menu size={24} />
             </button>
-
             <button
-              onClick={handleNewConversation}
-              className="relative flex w-full cursor-pointer items-center gap-3 rounded-full px-3 py-2.5 text-left hover:bg-[var(--app-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-0"
-              aria-label={t('sidebar.newChat')}
-              title={t('sidebar.newChat')}
+              onClick={handleNew}
+              className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 hover:bg-[var(--app-hover)]"
             >
               <Plus size={18} className="shrink-0 text-[var(--app-muted)]" />
-              <span
-                className={cn(
-                  'text-sm font-medium transition-opacity duration-200 will-change-opacity absolute left-12',
-                  isOpen ? 'opacity-100 delay-150' : 'opacity-0 delay-0 pointer-events-none'
-                )}
-              >
+              <span className={cn('text-sm font-medium truncate transition-opacity duration-300', isOpen ? 'opacity-100' : 'opacity-0')}>
                 {t('sidebar.newChat')}
               </span>
             </button>
           </div>
         </div>
 
-        <div
-          className={cn(
-            'flex-1 px-3 py-2',
-            isOpen ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'
-          )}
-        >
-          <div
-            className={cn(
-              'space-y-1 transition-[opacity,transform,max-height] duration-200 will-change-transform will-change-opacity',
-              isOpen
-                ? 'opacity-100 translate-x-0 max-h-[2000px] delay-150'
-                : 'opacity-0 -translate-x-2 max-h-0 overflow-hidden pointer-events-none'
-            )}
-          >
-            {conversations.length > 0 && (
-              <p className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--app-muted)]">
-                {t('sidebar.recent')}
-              </p>
-            )}
-            {conversations.map((conv: Conversation) => (
+        <div className={cn('flex-1 px-3 py-2', isOpen ? 'overflow-y-auto' : 'overflow-hidden')}>
+          <div className={cn('space-y-1', isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none')}>
+            {conversations.map((conv) => (
               <div
                 key={conv.id}
                 className={cn(
-                  'group/row flex w-full items-center gap-0 rounded-full transition-colors hover:bg-[var(--app-hover)]',
+                  'group/row flex items-center rounded-full hover:bg-[var(--app-hover)]',
                   currentConversationId === conv.id ? 'bg-[var(--app-hover-strong)]' : ''
                 )}
               >
                 <button
-                  type="button"
-                  onClick={() => handleSelectConversation(conv.id)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-3 py-2.5 text-left"
-                  title={getConversationTitle(conv.id)}
+                  onClick={() => setCurrentConversation(conv.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left"
                 >
                   <MessageSquare size={18} className="shrink-0 text-[var(--app-muted)]" />
-                  <span className="truncate text-sm">{getConversationTitle(conv.id)}</span>
+                  <span className="truncate text-sm">{conv.title}</span>
                 </button>
-
                 <ConversationMoreMenu
                   open={menuOpenFor === conv.id}
                   onOpenChange={(o) => setMenuOpenFor(o ? conv.id : null)}
                   onRename={() => openRename(conv)}
-                  onDelete={() => void handleDeleteConversation(conv.id)}
+                  onDelete={() => void handleDelete(conv.id)}
                 />
               </div>
             ))}
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-10 flex h-16 items-center bg-[var(--app-surface-muted)] px-3 py-3 backdrop-blur-md [-webkit-app-region:no-drag]">
+        <div className="sticky bottom-0 z-10 flex flex-col gap-1 bg-[var(--app-surface-muted)] px-3 py-3">
+          <button
+            onClick={onOpenLogs}
+            className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 hover:bg-[var(--app-hover)]"
+          >
+            <FileText size={18} className="shrink-0 text-[var(--app-muted)]" />
+            <span className={cn('text-sm font-medium truncate transition-opacity duration-300', isOpen ? 'opacity-100' : 'opacity-0')}>{t('sidebar.systemLogs')}</span>
+          </button>
           <button
             onClick={onOpenSettings}
-            className="relative flex w-full cursor-pointer items-center gap-3 rounded-full px-3 py-2.5 text-left hover:bg-[var(--app-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-0"
-            aria-label={t('sidebar.settings')}
-            title={t('sidebar.settings')}
+            className="flex w-full items-center gap-3 rounded-full px-3 py-2.5 hover:bg-[var(--app-hover)]"
           >
             <Settings size={18} className="shrink-0 text-[var(--app-muted)]" />
-            <span
-              className={cn(
-                'text-sm font-medium transition-opacity duration-200 will-change-opacity absolute left-12',
-                isOpen ? 'opacity-100 delay-150' : 'opacity-0 delay-0 pointer-events-none'
-              )}
-            >
+            <span className={cn('text-sm font-medium truncate transition-opacity duration-300', isOpen ? 'opacity-100' : 'opacity-0')}>
               {t('sidebar.settings')}
             </span>
           </button>

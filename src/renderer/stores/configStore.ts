@@ -1,106 +1,42 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import { GlobalSettings, DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_TEMPLATE_NAME } from '@shared'
-import { getConfig as getConfigAPI, saveConfig as saveConfigAPI, validateConfig as validateConfigAPI } from '../api'
+import type { GlobalSettings } from '@shared'
+import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE } from '@shared/constants'
+import { getConfig as getConfigApi, setConfig as setConfigApi } from '../api'
 import { syncI18nFromConfig } from '../i18n'
-
-const DEFAULT_CONFIG: GlobalSettings = {
-  apiKey: '',
-  model: DEFAULT_MODEL,
-  baseURL: DEFAULT_BASE_URL,
-  locale: 'zh-CN',
-  defaultTemplateName: DEFAULT_TEMPLATE_NAME,
-  defaultProactiveInterval: 60,
-  proactiveEnabled: true,
-  theme: 'dark',
-  fontSize: 16,
-}
 
 interface ConfigStore {
   config: GlobalSettings
-  isLoading: boolean
-  updateConfig: (config: Partial<GlobalSettings>) => void
-  setConfig: (config: GlobalSettings) => void
-  resetConfig: () => void
-  loadFromStorage: () => void
-  loadFromMain: () => Promise<void>
-  saveToMain: () => Promise<boolean>
-  validateAndSave: () => Promise<boolean>
+  loaded: boolean
+  loadConfig: () => Promise<void>
+  updateConfig: (config: Partial<GlobalSettings>) => Promise<void>
+  resetConfig: () => Promise<void>
 }
 
 export const useConfigStore = create<ConfigStore>()(
-  persist(
-    (set, get) => ({
-      config: DEFAULT_CONFIG,
-      isLoading: false,
+  (set) => ({
+    config: {} as GlobalSettings,
+    loaded: false,
 
-      loadFromStorage: () => {
-        const saved = localStorage.getItem('proactive-config')
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved)
-            set({ config: { ...DEFAULT_CONFIG, ...parsed } })
-          } catch {
-            set({ config: DEFAULT_CONFIG })
-          }
-        }
-      },
+    loadConfig: async () => {
+      const config = await getConfigApi()
+      syncI18nFromConfig(config.locale)
+      set({ config, loaded: true })
+    },
 
-      loadFromMain: async () => {
-        set({ isLoading: true })
-        try {
-          const config = await getConfigAPI()
-          set({ config })
-          syncI18nFromConfig(config.locale)
-          localStorage.setItem('proactive-config', JSON.stringify(config))
-        } catch (error) {
-          console.error('Failed to load config from main:', error)
-        } finally {
-          set({ isLoading: false })
-        }
-      },
+    updateConfig: async (newConfig) => {
+      const config = await setConfigApi(newConfig)
+      set({ config })
+    },
 
-      updateConfig: (newConfig) =>
-        set((state) => {
-          const config = { ...state.config, ...newConfig }
-          if (Object.prototype.hasOwnProperty.call(newConfig, 'locale')) {
-            syncI18nFromConfig(config.locale)
-          }
-          return { config }
-        }),
-
-      setConfig: (config) => set({ config }),
-
-      resetConfig: () => set({ config: DEFAULT_CONFIG }),
-
-      saveToMain: async () => {
-        const { config } = get()
-        try {
-          await saveConfigAPI(config)
-          localStorage.setItem('proactive-config', JSON.stringify(config))
-          return true
-        } catch (error) {
-          console.error('Failed to save config:', error)
-          return false
-        }
-      },
-
-      validateAndSave: async () => {
-        const { config } = get()
-        try {
-          await validateConfigAPI(config)
-          await saveConfigAPI(config)
-          localStorage.setItem('proactive-config', JSON.stringify(config))
-          return true
-        } catch (error) {
-          console.error('Failed to validate config:', error)
-          return false
-        }
-      },
-    }),
-    {
-      name: 'config-storage',
-      partialize: (state) => ({ config: state.config }),
-    }
-  )
+    resetConfig: async () => {
+      const config = await setConfigApi({
+        apiKey: '',
+        model: DEFAULT_MODEL,
+        baseURL: DEFAULT_BASE_URL,
+        theme: DEFAULT_THEME,
+        fontSize: DEFAULT_FONT_SIZE,
+      })
+      set({ config })
+    },
+  })
 )

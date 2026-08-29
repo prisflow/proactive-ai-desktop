@@ -5,6 +5,11 @@ import rehypeSanitize from 'rehype-sanitize'
 import { MermaidBlock } from './MermaidBlock'
 import { CodeBlock } from './CodeBlock'
 
+/**
+ * Markdown 渲染组件。
+ * 支持 GFM（表格、任务列表等），默认开启 XSS 过滤（rehype-sanitize）。
+ * 代码块委托给 CodeBlock（highlight.js 高亮），mermaid 代码块委托给 MermaidBlock（SVG 渲染）。
+ */
 export const MarkdownView = memo(function MarkdownView({ content }: { content: string }) {
   return (
     <div className="markdown">
@@ -58,4 +63,3 @@ export const MarkdownView = memo(function MarkdownView({ content }: { content: s
     </div>
   )
 })
-

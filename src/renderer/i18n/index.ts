@@ -1,252 +1,15 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { normalizeLocale } from '@shared/locale'
+import zh from './locales/zh-CN.json'
+import en from './locales/en-US.json'
 
-const zh = {
-  conversation: { defaultTitle: '新对话' },
-  sidebar: {
-    toggle: '切换侧边栏',
-    newChat: '新对话',
-    recent: '最近',
-    convActions: '对话操作',
-    rename: '重命名',
-    delete: '删除',
-    settings: '设置',
-    renameTitle: '重命名对话',
-    titleLabel: '标题',
-    titlePlaceholder: '对话标题',
-    cancel: '取消',
-    save: '保存',
-  },
-  chat: {
-    heroTitle: '你好，我是 ProactiveAI',
-    heroSubtitle: '今天我可以帮你做些什么？',
-    emptyHeading: '开始新的对话',
-    emptyHint: '在下方输入框发送第一条消息。',
-  },
-  avatar: {
-    packMissing: '形象资源未就绪',
-    packMissingDesc: '插件 {{pluginId}} 需要自备形象资源包：放在用户目录 plugin-asset-packs 下的 <packId>/<version>/ 目录中（路径中的 packId 须与 manifest 一致），保证 manifest.json 里的 packId 等于该插件 id，或以 {{pluginId}}. 为前缀。扫描阶段只校验 manifest 结构是否符合宿主约定；具体资源能否加载，由渲染侧按 manifest 路径尝试读取（缺失时面板内会报错）。',
-    expandRail: '展开形象栏',
-    collapseRail: '收起形象栏',
-    avatar: '形象',
-    zoom: '缩放',
-    moodHistory: '表情记录',
-    moodHistoryEmpty: '助手在回复末尾带 [[AVATAR:…]] 时会记在这里',
-    mood: '表情',
-    emote: '动作',
-  },
-  input: {
-    placeholder: '在此输入提示词',
-    send: '发送',
-    disclaimer:
-      'ProactiveAI 可能会显示不准确的信息，包括有关人物的信息，因此请核实其回复。',
-    needApiKey: '请先在设置中配置 API Key',
-    sendFailed: '发送消息失败',
-    errorPrefix: '错误：',
-  },
-  window: { minimize: '最小化', maximize: '最大化或还原', close: '关闭' },
-  settings: {
-    title: '设置',
-    close: '关闭',
-    language: '语言',
-    langZh: '简体中文',
-    langEn: 'English',
-    memorySection: '本会话记忆',
-    memoryClear: '清空',
-    memoryPickConv: '请选择一个对话以查看记忆。',
-    memoryLoading: '加载中…',
-    memoryEmpty: '暂无记忆条目。',
-    memorySummary: '已显示前 {{shown}} 条（共 {{total}} 条）。',
-    pluginsSection: '插件',
-    pluginsHint:
-      '可以关：下面列出已安装插件，每个一行开关。关掉后立刻生效（例如关掉「2D 虚拟形象」会隐藏右侧形象栏，并不再向模型注入表情说明）。偏好直接写本地，不用点「保存」。',
-    pluginsLoading: '加载插件列表…',
-    pluginsEmpty: '主进程返回的列表为空（不应出现）。请重启应用或查看控制台。',
-    pluginsBridgeMissing:
-      '当前预加载里没有 plugins.list（多半是 dev 未重启）。请完全退出 Electron 窗口后再运行 npm run dev，列表就会出现。',
-    pluginsIpcFailed: '无法从主进程拉取插件列表。请打开开发者工具看控制台报错，或重启应用。',
-    appearance: '外观',
-    themePlaceholder: '主题',
-    themeDark: '深色',
-    themeLight: '浅色',
-    themeAuto: '跟随系统',
-    themeHint: '切换后立即生效；点「保存」可写入配置文件。',
-    apiKey: 'API Key',
-    apiKeyPlaceholder: '输入 API Key',
-    model: '模型',
-    baseUrl: 'Base URL',
-    baseUrlPlaceholder: '留空使用默认',
-    personaTemplate: 'AI 人设模板',
-    templatePlaceholder: '选择模板',
-    templateLoading: '正在加载模板列表…',
-    templateHint: '内置模板不可删除；自定义模板在展开下拉的对应行右侧可删除。',
-    addTemplate: '新增模板…',
-    proactiveInterval: '主动触发间隔',
-    seconds: '秒',
-    proactiveToggle: '启用主动对话',
-    validateSave: '验证并保存配置',
-    saveOnly: '仅保存配置',
-    saving: '保存中…',
-    saveFailed: '保存失败',
-    validateFailed: '配置验证失败',
-    apiValidateFailed: 'API 验证失败，请检查配置',
-    deleteTemplateTitle: '删除模板',
-    deleteTemplateConfirm: '确定删除「{{name}}」？此操作不可撤销。',
-    deleting: '删除中…',
-    deleteLabel: '删除',
-    addTemplateTitle: '新增模板',
-    templateName: '模板名称',
-    templateNamePh: '例如：产品经理 / 代码审查 / 英语老师',
-    rolePrompt: '角色提示词（rolePrompt）',
-    rolePromptPh: '描述这个助手的角色、语气、目标、边界等…',
-    rolePromptHint:
-      '只会注入到"角色设定"部分；返回 JSON 格式等仍由程序统一追加，不会被覆盖。',
-    create: '创建并选中',
-    creating: '创建中…',
-    errNameRequired: '请输入模板名称。',
-    errRoleRequired: '请输入角色提示词（rolePrompt）。',
-    errDuplicateName: '模板名称已存在，请换一个名称。',
-    errCreateFailed: '创建失败，请稍后重试。',
-    errDeleteBuiltin: '无法删除该模板（内置模板不可删除）。',
-    errDeleteFailed: '删除失败，请稍后重试。',
-    deleteTemplateAria: '删除模板「{{name}}」',
-  },
-  // plugins: removed (market UI will return with avatar plugin)
-  templates: {
-    builtin: {
-      default: { name: '默认助手', desc: '专业、友好的AI助手' },
-      tsundere: { name: '傲娇女仆', desc: '傲娇但关心用户的贴心女仆' },
-      gentle: { name: '温柔姐姐', desc: '温柔体贴的知心姐姐' },
-      energetic: { name: '元气少女', desc: '活泼开朗的元气少女' },
-      professional: { name: '专业顾问', desc: '严谨高效的专业顾问' },
-    },
-  },
-}
-
-const en = {
-  conversation: { defaultTitle: 'New chat' },
-  sidebar: {
-    toggle: 'Toggle sidebar',
-    newChat: 'New chat',
-    recent: 'Recent',
-    convActions: 'Conversation actions',
-    rename: 'Rename',
-    delete: 'Delete',
-    settings: 'Settings',
-    renameTitle: 'Rename conversation',
-    titleLabel: 'Title',
-    titlePlaceholder: 'Conversation title',
-    cancel: 'Cancel',
-    save: 'Save',
-  },
-  chat: {
-    heroTitle: "Hi, I'm ProactiveAI",
-    heroSubtitle: 'What can I help you with today?',
-    emptyHeading: 'Start a new chat',
-    emptyHint: 'Send your first message in the box below.',
-  },
-  avatar: {
-    packMissing: 'Avatar pack not ready',
-    packMissingDesc: 'Plugin {{pluginId}} requires an avatar asset pack: place it under the plugin-asset-packs directory in <packId>/<version>/ (packId in path must match manifest). The packId must equal the plugin id or start with {{pluginId}}.. Only manifest structure is validated during scan; actual resource loading is attempted by the renderer.',
-    expandRail: 'Expand avatar rail',
-    collapseRail: 'Collapse avatar rail',
-    avatar: 'Avatar',
-    zoom: 'Zoom',
-    moodHistory: 'Mood history',
-    moodHistoryEmpty: 'Mood entries appear here when the assistant includes [[AVATAR:…]] in replies',
-    mood: 'Mood',
-    emote: 'Emote',
-  },
-  input: {
-    placeholder: 'Type a message',
-    send: 'Send',
-    disclaimer:
-      'ProactiveAI may show inaccurate information, including about people. Please verify responses.',
-    needApiKey: 'Please set your API Key in Settings first.',
-    sendFailed: 'Failed to send message',
-    errorPrefix: 'Error: ',
-  },
-  window: { minimize: 'Minimize', maximize: 'Maximize or restore', close: 'Close' },
-  settings: {
-    title: 'Settings',
-    close: 'Close',
-    language: 'Language',
-    langZh: '简体中文',
-    langEn: 'English',
-    memorySection: 'Memory (this chat)',
-    memoryClear: 'Clear',
-    memoryPickConv: 'Select a conversation to view memory.',
-    memoryLoading: 'Loading…',
-    memoryEmpty: 'No memory items yet.',
-    memorySummary: 'Showing first {{shown}} of {{total}} items.',
-    pluginsSection: 'Plugins',
-    pluginsHint:
-      'You can turn plugins off: each plugin has a toggle below. Changes apply immediately (e.g. disabling the avatar hides the right rail and stops injecting avatar instructions). Preferences are saved locally; no need to click Save.',
-    pluginsLoading: 'Loading plugins…',
-    pluginsEmpty: 'Main process returned an empty list (unexpected). Restart the app or check the console.',
-    pluginsBridgeMissing:
-      "Preload is missing plugins.list (common if dev wasn't restarted). Fully quit Electron, then run npm run dev again.",
-    pluginsIpcFailed: 'Could not load the plugin list from the main process. Check DevTools console or restart.',
-    appearance: 'Appearance',
-    themePlaceholder: 'Theme',
-    themeDark: 'Dark',
-    themeLight: 'Light',
-    themeAuto: 'System',
-    themeHint: 'Changes apply immediately; click Save to persist to disk.',
-    apiKey: 'API Key',
-    apiKeyPlaceholder: 'Enter API Key',
-    model: 'Model',
-    baseUrl: 'Base URL',
-    baseUrlPlaceholder: 'Leave empty for default',
-    personaTemplate: 'Persona template',
-    templatePlaceholder: 'Choose a template',
-    templateLoading: 'Loading templates…',
-    templateHint:
-      'Built-in templates cannot be deleted; delete custom rows from the dropdown.',
-    addTemplate: 'Add template…',
-    proactiveInterval: 'Proactive interval',
-    seconds: 's',
-    proactiveToggle: 'Enable proactive messages',
-    validateSave: 'Validate & save',
-    saveOnly: 'Save only',
-    saving: 'Saving…',
-    saveFailed: 'Save failed',
-    validateFailed: 'Validation failed',
-    apiValidateFailed: 'API validation failed; check your settings.',
-    deleteTemplateTitle: 'Delete template',
-    deleteTemplateConfirm: 'Delete "{{name}}"? This cannot be undone.',
-    deleting: 'Deleting…',
-    deleteLabel: 'Delete',
-    addTemplateTitle: 'New template',
-    templateName: 'Template name',
-    templateNamePh: 'e.g. PM / Code review / English tutor',
-    rolePrompt: 'Role prompt',
-    rolePromptPh: 'Describe role, tone, goals, boundaries…',
-    rolePromptHint:
-      'Injected only as the role section; JSON format rules are still appended by the app.',
-    create: 'Create & select',
-    creating: 'Creating…',
-    errNameRequired: 'Please enter a template name.',
-    errRoleRequired: 'Please enter a role prompt.',
-    errDuplicateName: 'That name already exists.',
-    errCreateFailed: 'Could not create. Try again.',
-    errDeleteBuiltin: 'Built-in templates cannot be deleted.',
-    errDeleteFailed: 'Could not delete. Try again.',
-    deleteTemplateAria: 'Delete template "{{name}}"',
-  },
-  // plugins: removed (market UI will return with avatar plugin)
-  templates: {
-    builtin: {
-      default: { name: 'Default assistant', desc: 'Professional, friendly assistant' },
-      tsundere: { name: 'Tsundere maid', desc: 'Tsundere but caring' },
-      gentle: { name: 'Gentle sister', desc: 'Warm and supportive' },
-      energetic: { name: 'Energetic girl', desc: 'Upbeat and lively' },
-      professional: { name: 'Professional advisor', desc: 'Concise and efficient' },
-    },
-  },
-}
-
+/**
+ * i18next 初始化入口。
+ * 语言资源通过 Vite 原生 JSON 导入静态加载，无异步网络请求。
+ * 默认语言 zh-CN，fallback 也是 zh-CN。
+ * React 绑定通过 react-i18next 的 initReactI18next 模块注入。
+ */
 void i18n.use(initReactI18next).init({
   resources: {
     'zh-CN': { translation: zh },
@@ -254,9 +17,14 @@ void i18n.use(initReactI18next).init({
   },
   lng: 'zh-CN',
   fallbackLng: 'zh-CN',
+  // 不用再转义，react自己会转
   interpolation: { escapeValue: false },
 })
 
+/**
+ * 根据配置切换当前语言。
+ * locale 为空或无法识别时由 normalizeLocale 回退到默认语言。
+ */
 export function syncI18nFromConfig(locale?: string): void {
   void i18n.changeLanguage(normalizeLocale(locale))
 }

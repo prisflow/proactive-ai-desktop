@@ -7,6 +7,7 @@ type ViewMode = 'preview' | 'source'
 let mermaidInitialized = false
 const mermaidSvgCache = new Map<string, string>()
 
+/** 全局初始化 mermaid（仅在首次渲染时执行一次） */
 function initMermaidOnce() {
   if (mermaidInitialized) return
   mermaid.initialize({
@@ -33,6 +34,13 @@ function initMermaidOnce() {
   mermaidInitialized = true
 }
 
+/**
+ * Mermaid 图表渲染组件（markdown 中 ` ```mermaid ` 代码块）。
+ * - 支持预览 / 源码两种视图切换
+ * - 使用 mermaid.render() 将图表定义渲染为 SVG
+ * - 内置 LRU 缓存（避免重复渲染同一图表）
+ * - solarized light 配色，与代码块风格统一
+ */
 export const MermaidBlock = memo(function MermaidBlock({ chart }: { chart: string }) {
   const normalizedChart = useMemo(() => chart.replace(/\n$/, ''), [chart])
   const [mode, setMode] = useState<ViewMode>('preview')
@@ -118,4 +126,3 @@ export const MermaidBlock = memo(function MermaidBlock({ chart }: { chart: strin
     </div>
   )
 })
-

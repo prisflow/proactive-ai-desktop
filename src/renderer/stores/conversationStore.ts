@@ -1,138 +1,72 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import { Conversation } from '@shared'
-import {
-  getConversations,
-  getConversation,
-  createConversation as createConversationAPI,
-  updateConversation as updateConversationAPI,
-  deleteConversation as deleteConversationAPI,
-} from '../api'
-import i18n from '../i18n'
+import type { Conversation } from '@shared'
+import { listConversations, createConversation as createConversationApi, deleteConversation as deleteConversationApi, renameConversation as renameConversationApi } from '../api'
 
+/**
+ * 对话列表 store。
+ * 所有 CRUD 操作通过 IPC 同步到 Main SQLite，本 store 仅做前端缓存。
+ */
 interface ConversationStore {
   conversations: Conversation[]
   currentConversationId: string | null
-  isLoading: boolean
-  loadFromStorage: () => Promise<void>
-  loadFromMain: () => Promise<void>
+  loadConversations: () => Promise<void>
   createConversation: (title?: string) => Promise<string>
   deleteConversation: (id: string) => Promise<void>
+  renameConversation: (id: string, title: string) => Promise<void>
   setCurrentConversation: (id: string) => void
-  updateConversation: (id: string, data: Partial<Conversation>) => Promise<void>
-  /** 从主进程拉取单条会话并合并进列表（用于主进程已写标题等场景） */
-  refreshConversationFromMain: (id: string) => Promise<void>
+  updateConversation: (id: string, data: Partial<Conversation>) => void
 }
 
 export const useConversationStore = create<ConversationStore>()(
-  persist(
-    (set, get) => ({
-      conversations: [],
-      currentConversationId: null,
-      isLoading: false,
+  (set) => ({
+    conversations: [],
+    currentConversationId: null,
 
-      loadFromStorage: () => {
-        const saved = localStorage.getItem('proactive-conversations')
-        if (saved) {
-          const conversations = JSON.parse(saved)
-          set({ conversations, currentConversationId: conversations[0]?.id || null })
+    /** 从 Main 加载对话列表。启动时由 App.tsx 调用。 */
+    loadConversations: async () => {
+      const list = await listConversations()
+      set({ conversations: list })
+    },
+
+    /** 创建新对话 → IPC → SQLite → 返回 UUID。 */
+    createConversation: async (title?: string) => {
+      const conv = await createConversationApi(title)
+      set((state) => ({
+        conversations: [conv, ...state.conversations],
+        currentConversationId: conv.id,
+      }))
+      return conv.id
+    },
+
+    /** 软删除对话（IPC → SQLite is_archived=1）。自动切换到前一个对话。 */
+    deleteConversation: async (id: string) => {
+      await deleteConversationApi(id)
+      set((state) => {
+        const list = state.conversations.filter((c) => c.id !== id)
+        return {
+          conversations: list,
+          currentConversationId:
+            state.currentConversationId === id ? list[0]?.id || null : state.currentConversationId,
         }
-      },
+      })
+    },
 
-      loadFromMain: async () => {
-        set({ isLoading: true })
-        try {
-          const conversations = await getConversations()
-          set({ conversations })
-          if (conversations.length > 0 && !get().currentConversationId) {
-            set({ currentConversationId: conversations[0].id })
-          }
-        } catch (error) {
-          console.error('Failed to load conversations from main:', error)
-        } finally {
-          set({ isLoading: false })
-        }
-      },
+    /** 重命名对话（IPC → SQLite 持久化 → 本地更新）。 */
+    renameConversation: async (id: string, title: string) => {
+      const conv = await renameConversationApi(id, title)
+      if (!conv) return
+      set((state) => ({
+        conversations: state.conversations.map((c) => (c.id === id ? conv : c)),
+      }))
+    },
 
-      createConversation: async (title?: string) => {
-        const resolvedTitle = title ?? i18n.t('conversation.defaultTitle')
-        try {
-          const newConv = await createConversationAPI(resolvedTitle)
-          set((state) => ({
-            conversations: [newConv, ...state.conversations],
-            currentConversationId: newConv.id,
-          }))
-          return newConv.id
-        } catch (error) {
-          console.error('Failed to create conversation:', error)
-          const id = `conv_${Date.now()}`
-          const newConversation: Conversation = {
-            id,
-            title: resolvedTitle,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          }
-          set((state) => ({
-            conversations: [newConversation, ...state.conversations],
-            currentConversationId: id,
-          }))
-          return id
-        }
-      },
+    setCurrentConversation: (id: string) => set({ currentConversationId: id }),
 
-      deleteConversation: async (id: string) => {
-        try {
-          await deleteConversationAPI(id)
-        } catch (error) {
-          console.error('Failed to delete conversation in main:', error)
-        }
-        set((state) => {
-          const newConversations = state.conversations.filter((c) => c.id !== id)
-          const newCurrentId = state.currentConversationId === id
-            ? (newConversations[0]?.id || null)
-            : state.currentConversationId
-          return {
-            conversations: newConversations,
-            currentConversationId: newCurrentId,
-          }
-        })
-      },
-
-      setCurrentConversation: (id: string) => {
-        set({ currentConversationId: id })
-      },
-
-      updateConversation: async (id: string, data: Partial<Conversation>) => {
-        try {
-          await updateConversationAPI(id, data)
-        } catch (error) {
-          console.error('Failed to update conversation in main:', error)
-        }
-        set((state) => ({
-          conversations: state.conversations.map((c) =>
-            c.id === id ? { ...c, ...data, updatedAt: Date.now() } : c
-          ),
-        }))
-      },
-
-      refreshConversationFromMain: async (id: string) => {
-        try {
-          const conv = await getConversation(id)
-          if (!conv) return
-          set((state) => ({
-            conversations: state.conversations.map((c) => (c.id === id ? conv : c)),
-          }))
-        } catch (error) {
-          console.error('Failed to refresh conversation from main:', error)
-        }
-      },
-    }),
-    {
-      name: 'conversation-storage',
-      partialize: (state) => ({
-        conversations: state.conversations,
-        currentConversationId: state.currentConversationId,
-      }),
-    }
-  )
+    updateConversation: (id: string, data: Partial<Conversation>) =>
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, ...data, updatedAt: Date.now() } : c
+        ),
+      })),
+  })
 )

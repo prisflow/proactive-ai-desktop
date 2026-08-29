@@ -1,94 +1,52 @@
-import { SendHorizontal } from 'lucide-react'
+import { SendHorizontal, Square } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConversationStore } from '@/stores/conversationStore'
 import { useChatStore } from '@/stores/chatStore'
-import { submitUserText, getConfig } from '@/api'
-import { GlobalSettings } from '@shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { chatAbort } from '@/api'
 
-export default function InputArea() {
+/**
+ * 底部输入区域。
+ * - 自动高度 textarea（单行/多行切换）
+ * - Enter 发送，Shift+Enter 换行
+ * - 无当前对话时自动创建
+ * - 发送后触发 scrollToLastUserMessage
+ */
+export default function InputArea({ chatAtBottom, onScrollToBottom }: { chatAtBottom?: boolean; onScrollToBottom?: () => void }) {
   const { t } = useTranslation()
   const [inputText, setInputText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [config, setConfig] = useState<GlobalSettings | null>(null)
   const [isMultiline, setIsMultiline] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { currentConversationId, createConversation, refreshConversationFromMain } =
-    useConversationStore()
-  const { addMessage, setLoading } = useChatStore()
-
-  useEffect(() => {
-    loadConfig()
-  }, [])
-
-  const loadConfig = async () => {
-    try {
-      const cfg = await getConfig()
-      setConfig(cfg)
-    } catch (error) {
-      console.error('Failed to load config:', error)
-    }
-  }
+  const { currentConversationId, createConversation } = useConversationStore()
+  const { sendMessage, busyConversations } = useChatStore()
+  const isBusy = currentConversationId ? !!busyConversations[currentConversationId] : false
 
   const handleSend = async () => {
-    if (!inputText.trim() || isLoading) return
-
+    if (!inputText.trim() || isLoading || isBusy) return
     let conversationId = currentConversationId
     if (!conversationId) {
       conversationId = await createConversation()
     }
-
-    const userMessageId = `msg_${Date.now()}`
     const text = inputText.trim()
-
     setIsLoading(true)
-    setLoading(true)
-
-    addMessage(conversationId, {
-      id: userMessageId,
-      role: 'user',
-      content: text,
-      createdAt: Date.now(),
-    })
     setInputText('')
-
-    const priorLen = useChatStore.getState().messages[conversationId]?.length ?? 0
-    const isFirstUserMessage = priorLen <= 1
-
-    try {
-      if (!config?.apiKey) {
-        throw new Error(t('input.needApiKey'))
-      }
-
-      const r = await submitUserText({
-        conversationId,
-        text,
-        userMessageId,
+    sendMessage(conversationId, text)
+      .then(() => {
+        requestAnimationFrame(() => onScrollToBottom?.())
       })
-      if (!r.ok) {
-        throw new Error(r.error || t('input.sendFailed'))
-      }
-    } catch (error) {
-      console.error('Failed to send message:', error)
-      addMessage(conversationId, {
-        id: `msg_${Date.now() + 1}`,
-        role: 'assistant',
-        content: `${t('input.errorPrefix')}${error instanceof Error ? error.message : t('input.sendFailed')}`,
-        createdAt: Date.now(),
+      .catch(() => {
+        // 错误已在 chatStore 中 toast 提示，这里仅避免 unhandled rejection
       })
-    } finally {
-      if (isFirstUserMessage) {
-        void refreshConversationFromMain(conversationId)
-      }
-      setIsLoading(false)
-      setLoading(false)
-    }
+      .finally(() => setIsLoading(false))
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      // busy 时禁止回车发送（可继续输入，需先手动中断才能发送），防止连发插入工具执行
+      if (isBusy) return
       e.preventDefault()
       handleSend()
     }
@@ -103,47 +61,41 @@ export default function InputArea() {
   }, [inputText])
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[var(--app-gradient-input-stop)] via-[var(--app-gradient-input-stop)] to-transparent px-4 pb-4 pt-2 md:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl">
-
-        <div
-          className={cn(
-            'flex gap-2 rounded-[28px] border border-[color:var(--app-border)] bg-[var(--app-elevated)] px-4 py-2.5 shadow-2xl transition-colors focus-within:border-[color:var(--app-border-strong)]',
-            isMultiline ? 'items-end' : 'items-center'
-          )}
+    <div className="relative bg-gradient-to-t from-[var(--app-gradient-input-stop)] via-[var(--app-gradient-input-stop)] to-transparent px-4 pb-4 pt-2">
+      {!chatAtBottom && (
+        <button
+          className="absolute bottom-full left-1/2 z-10 -translate-x-1/2 mb-2 rounded-full bg-[var(--app-surface)] border border-[var(--app-border)] p-2 shadow-lg hover:bg-[var(--app-hover)]"
+          onClick={onScrollToBottom}
         >
+          <svg className="h-5 w-5 text-[var(--app-fg)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+      )}
+      <div className="mx-auto max-w-3xl">
+        <div className={cn('flex gap-2 rounded-[28px] border border-[color:var(--app-border)] bg-[var(--app-elevated)] px-4 py-2.5 shadow-2xl')}>
           <textarea
             ref={textareaRef}
-            className="custom-scrollbar min-h-[44px] max-h-60 flex-1 resize-none border-none bg-transparent py-2 pl-1 pr-2 text-base text-[var(--app-fg)] outline-none placeholder:text-[var(--app-muted-fg)] focus:ring-0"
+            className="custom-scrollbar min-h-[44px] max-h-60 flex-1 resize-none border-none bg-transparent py-2 pl-1 pr-2 text-base text-[var(--app-fg)] outline-none placeholder:text-[var(--app-muted-fg)]"
             placeholder={t('input.placeholder')}
             rows={1}
             value={inputText}
-            onChange={(e) => {
-              setInputText(e.target.value)
-            }}
+            onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
           />
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            onClick={handleSend}
-            disabled={!inputText.trim() || isLoading}
-            aria-label={t('input.send')}
-            className={cn(
-              'h-9 w-9 shrink-0 rounded-full transition-colors',
-              isMultiline ? 'self-end' : 'self-center',
-              inputText.trim() && !isLoading
-                ? 'bg-[var(--app-send-ready)] text-white hover:bg-[var(--app-send-ready-hover)] hover:text-white'
-                : 'bg-[var(--app-send-disabled)] text-[var(--app-send-disabled-fg)] hover:bg-[var(--app-send-disabled)]'
-            )}
+            onClick={isBusy ? () => { chatAbort(currentConversationId!) } : handleSend}
+            disabled={(!inputText.trim() && !isBusy) || isLoading}
+            className={cn('h-9 w-9 shrink-0 rounded-full', isMultiline ? 'self-end' : 'self-center',
+              isBusy ? 'bg-[var(--app-send-disabled)] text-[var(--app-fg)] hover:bg-[var(--app-hover)]' : inputText.trim() ? 'bg-[var(--app-send-ready)] text-white' : 'bg-[var(--app-send-disabled)]')}
           >
-            <SendHorizontal size={18} strokeWidth={2} />
+            {isBusy ? <Square size={16} strokeWidth={2.5} /> : <SendHorizontal size={18} strokeWidth={2} />}
           </Button>
         </div>
-        <p className="mt-3 px-8 text-center text-[11px] text-[var(--app-muted)]">
-          {t('input.disclaimer')}
-        </p>
+        <p className="mt-3 px-8 text-center text-[11px] text-[var(--app-muted)]">{t('input.disclaimer')}</p>
       </div>
     </div>
   )

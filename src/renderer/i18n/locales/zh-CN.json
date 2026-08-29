@@ -1,0 +1,75 @@
+{
+  "conversation": {
+    "defaultTitle": "新对话"
+  },
+  "sidebar": {
+    "toggle": "切换侧边栏",
+    "newChat": "新对话",
+    "recent": "最近",
+    "convActions": "对话操作",
+    "rename": "重命名",
+    "delete": "删除",
+    "settings": "设置",
+    "renameTitle": "重命名对话",
+    "titleLabel": "标题",
+    "titlePlaceholder": "对话标题",
+    "cancel": "取消",
+    "save": "保存",
+    "systemLogs": "系统日志"
+  },
+  "logs": {
+    "title": "系统日志",
+    "tokenTitle": "Token 使用",
+    "weekly": "一周用量",
+    "hourly": "今日分时",
+    "toolSplit": "上下文与工具",
+    "inputHit": "输入（命中缓存）",
+    "inputMiss": "输入（未命中缓存）",
+    "output": "输出",
+    "hitRate": "命中率",
+    "total": "总量",
+    "clear": "清空",
+    "range7": "近 7 天",
+    "range14": "近 14 天",
+    "range30": "近 30 天"
+  },
+  "chat": {
+    "heroTitle": "你好，我是 ProactiveAI",
+    "heroSubtitle": "今天我可以帮你做些什么？",
+    "emptyHeading": "开始新的对话",
+    "emptyHint": "在下方输入框发送第一条消息。"
+  },
+  "input": {
+    "placeholder": "在此输入提示词",
+    "send": "发送",
+    "disclaimer": "ProactiveAI 可能会显示不准确的信息，包括有关人物的信息，因此请核实其回复。",
+    "needApiKey": "请先在设置中配置 API Key",
+    "sendFailed": "发送消息失败",
+    "errorPrefix": "错误："
+  },
+  "window": {
+    "minimize": "最小化",
+    "maximize": "最大化或还原",
+    "close": "关闭"
+  },
+  "settings": {
+    "title": "设置",
+    "close": "关闭",
+    "language": "语言",
+    "langZh": "简体中文",
+    "langEn": "English",
+    "appearance": "外观",
+    "themePlaceholder": "主题",
+    "themeDark": "深色",
+    "themeLight": "浅色",
+    "themeAuto": "跟随系统",
+    "themeHint": "切换后立即生效；点「保存」可写入配置文件。",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "输入 API Key",
+    "model": "模型",
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "留空使用默认",
+    "fontSize": "字体大小",
+    "fontSizeHint": "px"
+  }
+}

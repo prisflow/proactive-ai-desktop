@@ -9,8 +9,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
     "resolveJsonModule": true,
     "moduleResolution": "node",
+    "paths": {
+      "@shared": ["./src/shared/index.ts"],
+      "@shared/*": ["./src/shared/*"]
+    },
     "types": ["node"]
   },
   "include": ["src/main/**/*", "src/shared/**/*"],

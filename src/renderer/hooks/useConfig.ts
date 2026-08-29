@@ -7,22 +7,16 @@ interface UseConfigReturn {
   resetConfig: () => void
 }
 
+/**
+ * 全局配置读写 hook。
+ * 通过 configStore 走 IPC 与 Main 进程 SQLite 同步。
+ */
 export function useConfig(): UseConfigReturn {
-  const { config, updateConfig, resetConfig, saveToMain } = useConfigStore()
-
-  const handleUpdateConfig = (newConfig: Partial<GlobalSettings>) => {
-    updateConfig(newConfig)
-    void saveToMain()
-  }
-
-  const handleResetConfig = () => {
-    resetConfig()
-    void saveToMain()
-  }
+  const { config, updateConfig, resetConfig } = useConfigStore()
 
   return {
     config,
-    updateConfig: handleUpdateConfig,
-    resetConfig: handleResetConfig,
+    updateConfig,
+    resetConfig,
   }
 }

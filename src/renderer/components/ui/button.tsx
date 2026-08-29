@@ -1,6 +1,8 @@
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
+// cva用于json定义样式与props对接，作为样式生成器
 import { cva, type VariantProps } from "class-variance-authority"
+// cn作用于cva外层，用于合并与清理冲突规则
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
@@ -30,13 +32,17 @@ const buttonVariants = cva(
 )
 
 export interface ButtonProps
+  // 继承原生按钮
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    // 绑定CVA
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
 }
 
+// 转发组件引用，用于上层组件测量物理尺寸和控制焦点等等
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
+    // 用asChild控制渲染HTML标签还是复制合并到子元素上
     const Comp = asChild ? Slot : "button"
     return (
       <Comp

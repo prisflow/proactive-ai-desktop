@@ -1,0 +1,38 @@
+@layer base {
+  /* firefox */
+  * {
+    scrollbar-width: thin;
+    /* 滑块颜色 轨道颜色*/
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    /* 垂直滚动条宽度 */
+    width: 10px;
+    /* 水平滚动条高度 */
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    /* 轨道完全透明 */
+    background: transparent;
+  }
+
+  /* 滑块 */
+  *::-webkit-scrollbar-thumb {
+    /* 颜色 */
+    background: var(--scrollbar-thumb);
+    /* 周围画一个3px的透明边框 */
+    border: 3px solid transparent;
+    /* 背景颜色只在内容区裁剪 */
+    background-clip: content-box;
+    /* 完美圆角 */
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
