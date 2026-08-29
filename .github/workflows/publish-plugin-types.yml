@@ -28,7 +28,7 @@ jobs:
       # 2) 升级 npm 到 11：Node 20 自带 npm 10 对 scoped 包的 trusted publishing (OIDC) 有 404 bug
       #    （见 npm/cli issues #8730 / #8976），npm 11 已修复。
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Publish to npm (trusted publishing / OIDC)
         working-directory: plugin-types
