@@ -23,9 +23,8 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
+      # trusted publishing：npmjs 侧已绑定本 workflow 的 OIDC，
+      # npm publish 时自动交换 token，无需 NPM_TOKEN secret。
       - name: Publish to npm (trusted publishing / OIDC)
         working-directory: plugin-types
-        run: |
-          npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
