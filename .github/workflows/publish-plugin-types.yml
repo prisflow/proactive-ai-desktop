@@ -24,8 +24,8 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       # trusted publishing（npmjs 侧已绑定本 workflow 的 OIDC）：
-      # 保留 registry-url 让 npm 识别 npmjs registry；不注入任何 NODE_AUTH_TOKEN，
-      # npm 会利用 id-token:write 自动交换 OIDC token（npm >= 9.6.10）。
+      # setup-node 配 registry-url 时会注入无效的 NODE_AUTH_TOKEN（占位），
+      # 它会让 npm 优先用 token 而放弃 OIDC。用 env -u 移除后 npm 走 OIDC（id-token:write）。
       - name: Publish to npm (trusted publishing / OIDC)
         working-directory: plugin-types
-        run: npm publish --access public --provenance
+        run: env -u NODE_AUTH_TOKEN npm publish --access public --provenance
