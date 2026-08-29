@@ -1,6 +1,6 @@
 {
   "name": "@prisflow/proactiveai-plugin-types",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ProactiveAI 宿主插件 API 的类型契约（纯类型，无运行时代码）。插件开发者通过该包获得类型提示与编译检查。",
   "license": "MIT",
   "private": false,
