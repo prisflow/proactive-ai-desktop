@@ -8,7 +8,7 @@ import { createTray, destroyTray } from './tray'
 import { contextRegistry } from './modules/conversations/context/context-manager'
 import { toolRegistry } from './modules/conversations/tool/tool-manager'
 import { createBuiltinTools } from './modules/conversations/tool/builtin-tools'
-import { pluginLoader } from './modules/plugin'
+import { pluginLoader, syncBuiltinPlugins } from './modules/plugin'
 import { flowHost } from './modules/conversations/flow/flow-host'
 import { LlmProvider } from './modules/llm'
 
@@ -58,8 +58,10 @@ app.whenReady().then(async () => {
     toolNames: toolRegistry.listAll(),
   })
 
-  // 启动插件守护进程
+  // 启动插件守护进程（先 seed 内置插件到 userData/plugins，再扫描监听）
   const pluginsDir = path.join(app.getPath('userData'), 'plugins')
+  const builtinPluginsDir = path.join(app.getAppPath(), 'resources', 'plugins')
+  await syncBuiltinPlugins(builtinPluginsDir, pluginsDir)
   await pluginLoader.start(pluginsDir)
 
   registerIpc()

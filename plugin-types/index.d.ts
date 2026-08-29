@@ -1,12 +1,295 @@
 /**
- * @proactive-ai/plugin-types —— 宿主插件 API 类型契约。
+ * @prisflow/proactiveai-plugin-types
  *
- * 本地开发：re-export 宿主源码类型（零漂移，宿主类型演进自动跟随）。
- * 发布 npm：相对路径在包外失效，发布前需用 `tsc --emitDeclarationOnly`
- * 从宿主生成独立 .d.ts 冻结进本文件（届时将 re-export 替换为内联定义）。
+ * ProactiveAI 宿主插件 API 的类型契约。
+ * 本文件为自包含声明（不 import 宿主相对路径），可独立发布 npm。
+ *
+ * 发布：push 到 main 且 plugin-types/ 有变更时，
+ * 由 .github/workflows/publish-plugin-types.yml 自动发布（trusted publishing）。
+ *
+ * 使用：
+ *   npm i -D @prisflow/proactiveai-plugin-types
+ *
+ * 插件入口（单 JS 文件，CJS）：
+ *   const plugin = {
+ *     id: 'my-plugin',
+ *     name: '我的插件',
+ *     version: '1.0.0',
+ *     setup(api) { api.registerContext(...); api.registerTool(...); },
+ *   }
+ *   module.exports = plugin
+ *
+ * 分发：zip 包内 plugin.json + 入口 js（见 PluginManifest）。
  */
-export type { Plugin, PluginSetupAPI } from '../src/main/modules/plugin/types'
-export type { ToolDefinition, NonSilentToolDef, ToolResult, ToolPromptResult, ToolCallMeta } from '../src/main/modules/conversations/tool/types'
-export type { ContextDefinition, ContextRole } from '../src/main/modules/conversations/context/types'
-export type { FlowNode, FlowCtx, FlowDefinition, FlowResult } from '../src/main/modules/conversations/flow/flow-host'
-export type { LlmMessage, LlmConfig, LlmToolDef, LlmResult, StreamChunk } from '../src/main/modules/llm'
+
+/** semver 版本号。 */
+export type SemVer = string
+
+/** 插件定义。单 JS 文件，`module.exports = { id, name, version, setup }`。 */
+export interface Plugin {
+  /** 插件唯一 ID（与 plugin.json id 一致）。 */
+  id: string
+  /** 人类可读名称。 */
+  name: string
+  /** semver 版本号。 */
+  version: string
+  /** 描述。 */
+  description?: string
+  /** 安装钩子：宿主加载文件后调用，在此注册上下文/工具/Flow 等。 */
+  setup(api: PluginSetupAPI): void
+}
+
+/** 插件包元数据（zip 根目录 plugin.json）。 */
+export interface PluginManifest {
+  /** 插件唯一 ID，必须与 JS 内 plugin.id 一致。 */
+  id: string
+  /** 展示名。 */
+  name: string
+  /** semver 版本号，必须与 JS 内 version 一致。 */
+  version: string
+  /** 描述。 */
+  description?: string
+  /** zip 内入口文件名（默认 'index.js'）。 */
+  entry?: string
+  /** 宿主最低版本（大于则拒绝安装）。 */
+  minAppVersion?: string
+  /** 作者。 */
+  author?: string
+  /** 下载来源（如 COS 地址），展示用。 */
+  homepage?: string
+}
+
+/** 上下文角色。 */
+export type ContextRole = 'main' | 'sub'
+
+/** 压缩层配置（per-context，未配置字段走全局默认）。 */
+export interface ContextCompactionConfig {
+  /** 压缩器系统提示词。 */
+  summaryPrompt?: string
+  /** 摘要写入的记忆 slot 名（缺省 'summary'）。 */
+  summarySlot?: string
+  /** 摘要头部标签文本（如 【剧情史】）。 */
+  summaryLabel?: string
+  /** 触发压缩的 token 预算（缺省 60000）。 */
+  tokenBudget?: number
+  /** 压缩后保留的最近消息估算 token 数（缺省 8000）。 */
+  keepTokens?: number
+  /** 稳定前缀构建：可追加自定义记忆 slot（world_setting 等）。 */
+  prefixSlots?: string[]
+  /** 是否启用再压缩（摘要超预算时摘要的摘要）。缺省 true。 */
+  allowResummarize?: boolean
+}
+
+/** 上下文注册描述 —— 插件或内置模块注册时提供。 */
+export interface ContextDefinition {
+  /** 上下文唯一 ID。 */
+  contextId: string
+  /** 上下文角色。 */
+  role: ContextRole
+  /** 进入此上下文时注入到系统提示的文本。 */
+  initialPrompt?: string
+  /** 供主上下文 host_enter_subcontext 选路时展示的简短描述。 */
+  description?: string
+  /** 此上下文中可见的工具名列表。 */
+  toolNames?: string[]
+  /** 压缩层配置（per-context）。 */
+  compaction?: ContextCompactionConfig
+}
+
+/** 工具调用上下文（调用方传入）。 */
+export interface ToolCallMeta {
+  conversationId?: string
+  contextId?: string
+  /** 触发本次工具调用的 LLM 轮次 runId（日志链路树）。 */
+  parentRunId?: string
+}
+
+/** 工具执行结果。 */
+export type ToolResult =
+  | { ok: true; result: unknown }
+  | { ok: false; error: string }
+
+/** transformPrompt 的产出：工具结果转换为 LLM 历史与事件回灌的统一形态。 */
+export interface ToolPromptResult {
+  success: { toolName: string; error?: string }
+  instruction?: string
+  result?: { text?: string; ui?: string }
+}
+
+/** 静默工具：执行后不入事件总线，无需 transformPrompt。 */
+export interface SilentToolDef {
+  name: string
+  description: string
+  inputSchema?: Record<string, unknown>
+  run: (input: Record<string, unknown>, meta: ToolCallMeta) => ToolResult | Promise<ToolResult>
+  silent: true
+  transformPrompt?: undefined
+}
+
+/** 非静默工具：执行后产生事件入总线，必须提供 transformPrompt。 */
+export interface NonSilentToolDef {
+  name: string
+  description: string
+  inputSchema?: Record<string, unknown>
+  run: (input: Record<string, unknown>, meta: ToolCallMeta) => ToolResult | Promise<ToolResult>
+  silent?: false
+  transformPrompt: (result: ToolResult) => ToolPromptResult
+}
+
+/** 工具定义 —— 注册时需满足对应的 silent/transformPrompt 约束。 */
+export type ToolDefinition = SilentToolDef | NonSilentToolDef
+
+/** LLM API 连接配置。 */
+export interface LlmConfig {
+  apiKey: string
+  model: string
+  baseURL?: string
+}
+
+/** LLM 消息（OpenAI Chat Completion 单条）。 */
+export interface LlmMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_call_id?: string
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>
+}
+
+/** OpenAI tools 参数中的单个工具定义。 */
+export interface LlmToolDef {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
+/** LLM 单次调用结果。 */
+export type LlmResult =
+  | { kind: 'text'; text: string }
+  | {
+      kind: 'tool_calls'
+      toolCalls: Array<{ id: string; name: string; args: string }>
+    }
+
+/** 流式推送中的数据块。 */
+export type StreamChunk =
+  | { kind: 'delta'; delta: string }
+  | { kind: 'done'; finishReason: 'stop' }
+  | { kind: 'done'; finishReason: 'tool_calls'; toolCalls: Array<{ id: string; name: string; args: string }> }
+
+/** 图执行共享上下文（Flow 节点）。 */
+export interface FlowCtx {
+  conversationId?: string
+  contextId?: string
+  signal?: AbortSignal
+  history?: LlmMessage[]
+  input: unknown
+  state: Record<string, unknown>
+  data: Record<string, unknown>
+  push: (payload: { kind: 'ui_render'; component: string; props: Record<string, unknown>; children?: unknown[] }) => void
+  rendered: boolean
+}
+
+/** LLM 生成节点。 */
+export interface LlmNode {
+  type: 'llm'
+  system: string
+  input: (ctx: FlowCtx) => string
+  schema?: Record<string, unknown>
+  assign?: string
+  maxTries?: number
+  maxTokens?: number
+}
+
+/** 静态节点：纯函数（校验/记账/门控）。 */
+export interface StaticNode {
+  type: 'static'
+  fn: (ctx: FlowCtx) => string | void
+}
+
+/** 渲染终止节点。 */
+export interface RenderNode {
+  type: 'render'
+  build: (ctx: FlowCtx) => { component: string; props: Record<string, unknown>; children?: unknown[] }
+}
+
+/** 条件分支节点。 */
+export interface ConditionNode {
+  type: 'condition'
+  when: (ctx: FlowCtx) => boolean
+  then: FlowNode[]
+  else?: FlowNode[]
+}
+
+/** Flow 节点联合。 */
+export type FlowNode = LlmNode | StaticNode | RenderNode | ConditionNode
+
+/** 图定义。 */
+export interface FlowDefinition {
+  name: string
+  nodes: FlowNode[]
+  requireRender?: boolean
+}
+
+/** 图执行结果。 */
+export interface FlowResult {
+  ok: boolean
+  error?: string
+  data: Record<string, unknown>
+  state: Record<string, unknown>
+  rendered: boolean
+}
+
+/** 插件 setup(api) 拿到的宿主 API。 */
+export interface PluginSetupAPI {
+  /** 注册一个子上下文到全局 ContextRegistry。 */
+  registerContext(def: ContextDefinition): boolean
+  /** 注册一个工具到全局 ToolRegistry。 */
+  registerTool(def: ToolDefinition): boolean
+  /** 插件持久化存储（SQLite plugin_data 表，按插件 ID 一行，值任意 JSON）。 */
+  storage: {
+    /** 读取插件持久化数据，无记录返回 null。 */
+    get(): unknown
+    /** 整体覆盖写入插件持久化数据。 */
+    set(data: unknown): void
+  }
+  /** 宿主通用记忆层（host_memory 表，按会话+上下文隔离）。 */
+  memory: {
+    set(slot: string, data: string, opts?: { conversationId?: string; contextId?: string }): void
+    get(slot: string, opts?: { conversationId?: string; contextId?: string }): string | null
+    search(query: string, opts?: { conversationId?: string; contextId?: string }): Array<{ slot: string; data: string }>
+    remove(slot: string, opts?: { conversationId?: string; contextId?: string }): boolean
+  }
+  /** 宿主 LLM 能力：结构化生成（schema 校验失败自动重试）。 */
+  llm: {
+    generate(input: {
+      system: string
+      input: string
+      schema?: Record<string, unknown>
+      maxTries?: number
+    }): Promise<{ ok: true; text: string; data: unknown } | { ok: false; error: string }>
+  }
+  /** 回合执行器（图）：工具的 run() 内部实现设施。 */
+  flow: {
+    /** 注册一张图（节点链）。 */
+    register(def: FlowDefinition): boolean
+    /** 执行一张图，渲染经 push 通道推送并落库。 */
+    run(
+      name: string,
+      input: unknown,
+      opts?: { conversationId?: string; contextId?: string }
+    ): Promise<FlowResult>
+  }
+  /** 三段式骨架提示词注入（优化缓存命中）。 */
+  prompts: {
+    /** inject(where, text)：'prefix' 稳定前缀（system 内）｜'suffix' 尾部指令前。 */
+    inject(where: 'prefix' | 'suffix', text: string, opts?: { contextId?: string }): void
+    /** 移除注入。 */
+    remove(where: 'prefix' | 'suffix', text: string, opts?: { contextId?: string }): void
+  }
+  /** 压缩层配置（覆盖 ContextDefinition.compaction 或全局默认）。 */
+  compaction: {
+    configure(cfg: Partial<ContextCompactionConfig>, opts?: { contextId?: string }): void
+  }
+}

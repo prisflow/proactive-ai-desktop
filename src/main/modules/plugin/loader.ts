@@ -28,12 +28,14 @@ export class PluginLoader {
   private loaded = new Map<string, Plugin>()  // filePath → Plugin
   private pluginContexts = new Map<string, string[]>()  // pluginId → 注册的 contextIds
   private pluginTools = new Map<string, string[]>()  // pluginId → 注册成功的工具名
+  private pluginsDir = ''
 
   /**
    * 启动守护进程：扫描目录 + 开始监听。
    * @param pluginsDir - 插件目录路径
    */
   async start(pluginsDir: string): Promise<void> {
+    this.pluginsDir = pluginsDir
     await this.ensureDir(pluginsDir)
     await this.scan(pluginsDir)
     this.startWatching(pluginsDir)
@@ -48,6 +50,97 @@ export class PluginLoader {
   stop(): void {
     this.watcher?.close()
     this.watcher = undefined
+  }
+
+  /** 已安装插件清单（读 pluginsDir 下的 .json 元数据 + 加载状态）。 */
+  listInstalled(): Array<{ id: string; name: string; version: string; description?: string; entry: string; loaded: boolean }> {
+    const out: Array<{ id: string; name: string; version: string; description?: string; entry: string; loaded: boolean }> = []
+    if (!this.pluginsDir) return out
+    try {
+      const files = fs.readdirSync(this.pluginsDir)
+      const seen = new Set<string>()
+      // 1. 有 manifest json 的：读 json 元数据
+      for (const f of files) {
+        if (!f.endsWith('.json')) continue
+        const entryName = `${f.slice(0, -5)}.js`
+        if (!fs.existsSync(path.join(this.pluginsDir, entryName))) continue
+        seen.add(entryName)
+        try {
+          const man = JSON.parse(fs.readFileSync(path.join(this.pluginsDir, f), 'utf-8')) as {
+            id: string; name: string; version: string; description?: string; entry?: string
+          }
+          out.push({
+            id: man.id,
+            name: man.name,
+            version: man.version,
+            description: man.description,
+            entry: man.entry ?? entryName,
+            loaded: this.loaded.has(path.join(this.pluginsDir, man.entry ?? entryName)),
+          })
+        } catch {
+          // 单个 json 解析失败跳到兜底
+        }
+      }
+      // 2. 无 json 但有 entry（手动放置的 .js）：从已加载的 plugin 对象拿元数据
+      for (const f of files) {
+        if (!f.endsWith('.js')) continue
+        if (seen.has(f)) continue
+        const filePath = path.join(this.pluginsDir, f)
+        const loadedPlugin = this.loaded.get(filePath)
+        if (loadedPlugin) {
+          out.push({
+            id: loadedPlugin.id,
+            name: loadedPlugin.name,
+            version: loadedPlugin.version,
+            description: loadedPlugin.description,
+            entry: f,
+            loaded: true,
+          })
+        } else {
+          // 未加载的裸 js：以文件名兜底展示（无元数据）
+          out.push({
+            id: path.basename(f, '.js'),
+            name: path.basename(f, '.js'),
+            version: '?',
+            entry: f,
+            loaded: false,
+          })
+        }
+      }
+    } catch {
+      // 目录不可读返回空
+    }
+    return out
+  }
+
+  /**
+   * 卸载插件：先注销其上下文/工具（卸载注册表），再删除 entry.js 与关联 .json。
+   * 删除文件后 fs.watch 也会触发，但这里先行卸载避免竞态。
+   */
+  uninstallPlugin(entryName: string): { ok: boolean; error?: string } {
+    const filePath = path.join(this.pluginsDir, entryName)
+    if (this.loaded.has(filePath)) {
+      this.unloadPlugin(filePath)
+    }
+    try {
+      fs.unlinkSync(filePath)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: `删除入口失败：${msg}` }
+    }
+    // 关联的 manifest json（entry 同名 .json）
+    const manifestPath = filePath.replace(/\.js$/, '.json')
+    try {
+      fs.unlinkSync(manifestPath)
+    } catch {
+      // json 不存在也正常
+    }
+    logService.log('info', undefined, {
+      runId: uniqueRunId('plugin'),
+      name: 'loader.uninstall',
+      message: `uninstalled: ${entryName}`,
+    })
+    return { ok: true }
   }
 
   /** 确保目录存在。 */

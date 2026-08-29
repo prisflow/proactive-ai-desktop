@@ -70,6 +70,16 @@
     "baseUrl": "Base URL",
     "baseUrlPlaceholder": "留空使用默认",
     "fontSize": "字体大小",
-    "fontSizeHint": "px"
+    "fontSizeHint": "px",
+    "plugins": "插件",
+    "importPlugin": "导入插件",
+    "importPluginHint": "从 zip 包导入插件（安装后自动加载）",
+    "importPluginSuccess": "插件「{name}」v{version} 导入成功",
+    "importPluginCanceled": "已取消导入",
+    "importPluginFailed": "导入失败：{error}",
+    "uninstallPlugin": "卸载",
+    "uninstallPluginSuccess": "插件「{name}」已卸载",
+    "uninstallPluginFailed": "卸载失败：{error}",
+    "noPlugins": "暂无已安装插件，可从 zip 包导入。"
   }
 }

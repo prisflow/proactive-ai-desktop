@@ -1,4 +1,5 @@
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, dialog } from 'electron'
+import path from 'path'
 import { getMainWindow } from './window'
 import { logService } from './services/logger'
 import { globalConfigStore, conversationStore } from './services/store'
@@ -7,6 +8,7 @@ import type { ChatMessage, Conversation } from '@shared/types/domain'
 import { runtimeManager } from './modules/conversations/runtime-manager'
 import { LlmProvider, type LlmConfig } from './modules/llm'
 import { flowHost } from './modules/conversations/flow/flow-host'
+import { importPluginFromZip, pluginLoader } from './modules/plugin'
 
 /** MessageRecord → ChatMessage，role 映射 + uiRender 解析。
  * 内部消息过滤：event-status（工具执行状态文本）、tool-result（工具结果文本）与 compact-marker
@@ -99,6 +101,32 @@ export function registerIpc(): void {
   ipcMain.handle('usage:clear', async () => {
     clearUsage()
     return true
+  })
+
+  // 插件——导入 zip（文件选择器）
+  ipcMain.handle('plugins:importZip', async (): Promise<import('./modules/plugin').ImportResult> => {
+    const w = getMainWindow()
+    if (!w) return { ok: false, error: '窗口不可用' }
+    const result = await dialog.showOpenDialog(w, {
+      title: '导入插件',
+      filters: [{ name: '插件包 (zip)', extensions: ['zip'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths[0]) return { ok: false, error: '已取消' }
+    const pluginsDir = path.join(app.getPath('userData'), 'plugins')
+    return importPluginFromZip(result.filePaths[0], pluginsDir)
+  })
+
+  // 插件——已装清单
+  ipcMain.handle('plugins:list', () => {
+    return pluginLoader.listInstalled()
+  })
+
+  // 插件——卸载（注销上下文/工具 + 删文件）
+  ipcMain.handle('plugins:uninstall', (_ev, entryName: string): { ok: boolean; error?: string } => {
+    const base = path.basename(entryName)
+    if (!base.endsWith('.js') || base !== entryName) return { ok: false, error: '非法的插件入口名' }
+    return pluginLoader.uninstallPlugin(entryName)
   })
 
   // 全局配置

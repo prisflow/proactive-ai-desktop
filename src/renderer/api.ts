@@ -46,6 +46,12 @@ declare global {
         getHourly: () => Promise<Array<{ hour: string; promptTokens: number; completionTokens: number; cachedTokens: number; hitRate: number; toolCalls: number; textCalls: number }>>
         getToolSplit: () => Promise<{ textCalls: number; toolCalls: number; total: number }>
         getContextDaily: () => Promise<Array<{ day: string; contexts: Record<string, number> }>>
+        clear: () => Promise<boolean>
+      }
+      plugins: {
+        importZip: () => Promise<{ ok: boolean; error?: string; plugin?: { id: string; name: string; version: string } }>
+        list: () => Promise<Array<{ id: string; name: string; version: string; description?: string; entry: string; loaded: boolean }>>
+        uninstall: (entryName: string) => Promise<{ ok: boolean; error?: string }>
       }
     }
   }

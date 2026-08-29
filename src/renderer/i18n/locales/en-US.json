@@ -70,6 +70,16 @@
     "baseUrl": "Base URL",
     "baseUrlPlaceholder": "Leave empty for default",
     "fontSize": "Font Size",
-    "fontSizeHint": "px"
+    "fontSizeHint": "px",
+    "plugins": "Plugins",
+    "importPlugin": "Import Plugin",
+    "importPluginHint": "Import a plugin from a zip package (auto-loaded after install)",
+    "importPluginSuccess": "Plugin \"{name}\" v{version} imported successfully",
+    "importPluginCanceled": "Import canceled",
+    "importPluginFailed": "Import failed: {error}",
+    "uninstallPlugin": "Uninstall",
+    "uninstallPluginSuccess": "Plugin \"{name}\" uninstalled",
+    "uninstallPluginFailed": "Uninstall failed: {error}",
+    "noPlugins": "No plugins installed. Import a zip package to get started."
   }
 }

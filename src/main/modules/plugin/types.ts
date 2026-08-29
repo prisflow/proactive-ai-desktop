@@ -23,6 +23,35 @@ export interface Plugin {
 }
 
 /**
+ * 插件包元数据（plugin.json，zip 包内随 entry 一起分发）。
+ * 参考 VSCode/Obsidian/Chrome 扩展清单的常见字段，收敛为最小可用集。
+ * 字段校验见 plugins/installer.ts 的 validateManifest。
+ */
+export interface PluginManifest {
+  /** 插件唯一 ID，必须与 JS 内 plugin.id 一致（校验强约束）。 */
+  id: string
+  /** 展示名。 */
+  name: string
+  /** semver 版本号，必须与 JS 内 plugin.version 一致。 */
+  version: string
+  /** 描述，用于 UI 展示。 */
+  description?: string
+  /** zip 内入口文件名，默认 'index.js'。 */
+  entry?: string
+  /** 宿主最低版本（大于则拒绝安装）。 */
+  minAppVersion?: string
+  /** 作者。 */
+  author?: string
+  /** 下载来源（如 COS 地址），展示用。 */
+  homepage?: string
+}
+
+/** 简单 semver 校验：主.次.补丁（允许预发布后缀）。 */
+export function isSemver(v: string): boolean {
+  return /^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$/.test(v)
+}
+
+/**
  * 插件安装时获得的 API。
  * 上下文和工具分别注册到各自的全局注册表，互不耦合。
  */

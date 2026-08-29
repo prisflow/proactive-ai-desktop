@@ -89,6 +89,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getContextDaily: (): Promise<any> => ipcRenderer.invoke('usage:getContextDaily'),
     clear: (): Promise<boolean> => ipcRenderer.invoke('usage:clear'),
   },
+
+  /** 插件管理。 */
+  plugins: {
+    /** 打开文件选择器导入插件 zip，返回导入结果。 */
+    importZip: (): Promise<{ ok: boolean; error?: string; plugin?: { id: string; name: string; version: string } }> =>
+      ipcRenderer.invoke('plugins:importZip'),
+    /** 已安装插件清单。 */
+    list: (): Promise<Array<{ id: string; name: string; version: string; description?: string; entry: string; loaded: boolean }>> =>
+      ipcRenderer.invoke('plugins:list'),
+    /** 卸载插件（注销注册项并删除文件）。 */
+    uninstall: (entryName: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('plugins:uninstall', entryName),
+  },
 })
 
 export type ElectronAPI = typeof window.electronAPI
