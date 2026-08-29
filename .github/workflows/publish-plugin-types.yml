@@ -24,8 +24,12 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       # trusted publishing（npmjs 侧已绑定本 workflow 的 OIDC）：
-      # setup-node 配 registry-url 时会注入无效的 NODE_AUTH_TOKEN（占位），
-      # 它会让 npm 优先用 token 而放弃 OIDC。用 env -u 移除后 npm 走 OIDC（id-token:write）。
+      # 1) setup-node 会注入占位 NODE_AUTH_TOKEN，用 env -u 移除让 npm 走 OIDC（id-token:write）
+      # 2) 升级 npm 到 11：Node 20 自带 npm 10 对 scoped 包的 trusted publishing (OIDC) 有 404 bug
+      #    （见 npm/cli issues #8730 / #8976），npm 11 已修复。
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
       - name: Publish to npm (trusted publishing / OIDC)
         working-directory: plugin-types
         run: env -u NODE_AUTH_TOKEN npm publish --access public --provenance
