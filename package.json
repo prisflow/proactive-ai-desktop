@@ -39,6 +39,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "${name}-${version}-setup.${ext}",
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,

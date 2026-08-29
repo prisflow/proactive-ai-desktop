@@ -5,7 +5,8 @@
  * 本文件为自包含声明（不 import 宿主相对路径），可独立发布 npm。
  *
  * 发布：push 到 main 且 plugin-types/ 有变更时，
- * 由 .github/workflows/publish-plugin-types.yml 自动发布（trusted publishing）。
+ * 由 .github/workflows/publish-plugin-types.yml 触发；
+ * 仓库已在 npmjs 侧配置 trusted publishing（OIDC 自动认证，无需 NPM_TOKEN）。
  *
  * 使用：
  *   npm i -D @prisflow/proactiveai-plugin-types
