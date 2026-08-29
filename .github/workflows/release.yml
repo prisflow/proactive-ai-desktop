@@ -24,6 +24,23 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Pre-cache winCodeSign (skip mac/linux symlinks)
+        shell: pwsh
+        run: |
+          $cache = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign"
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          $zip = Join-Path $cache "winCodeSign-2.6.0.7z"
+          if (-not (Test-Path $zip)) {
+            Invoke-WebRequest -Uri "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z" -OutFile $zip -UseBasicParsing
+          }
+          # 排除 darwin/linux（Windows 打包不需要），避免 symlink 创建权限问题
+          $seven = Get-ChildItem "D:\a\proactive-ai-desktop\proactive-ai-desktop\node_modules\.pnpm\7zip-bin*\node_modules\7zip-bin\win\x64\7za.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($seven) {
+            & $seven.FullName x -y "-o$cache" $zip "-x!darwin/*" "-x!linux/*" | Out-Null
+          } else {
+            Write-Error "7za not found in pnpm cache"
+          }
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -32,8 +49,6 @@ jobs:
 
       - name: Package (Windows)
         run: npx electron-builder --win --publish never
-        env:
-          ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

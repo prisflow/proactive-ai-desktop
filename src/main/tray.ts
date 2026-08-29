@@ -12,8 +12,13 @@ let tray: Tray | null = null
 export function createTray(): void {
   if (tray) return
 
-  // 托盘图标
-  const iconPath = path.join(__dirname, '../../build/icon.png')
+  // 托盘图标：
+  // - 打包后：extraResources 把 resources/ 复制为 resources/resources/，app.getAppPath()=resources/app.asar，
+  //   用 .. 回父目录再进 resources/（即 resources/resources/icon.png）。
+  // - 开发时：app.getAppPath()=项目根，resources/icon.png 指向项目内副本。
+  const iconPath = app.isPackaged
+    ? path.join(app.getAppPath(), '..', 'resources', 'icon.png')
+    : path.join(app.getAppPath(), 'resources', 'icon.png')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon.resize({ width: 16, height: 16 }))
 
