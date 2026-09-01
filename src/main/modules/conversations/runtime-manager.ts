@@ -22,14 +22,6 @@ export class RuntimeManager {
     return this.runtimes.get(conversationId)
   }
 
-  /** 最近活跃的会话 ID（插件 API 缺省作用域回退用）。 */
-  getActiveConversationId(): string | undefined {
-    // 取最后创建/使用的 Runtime（Map 迭代序即插入序，取最后一个）
-    let last: string | undefined
-    for (const id of this.runtimes.keys()) last = id
-    return last
-  }
-
   destroy(conversationId: string): void {
     const rt = this.runtimes.get(conversationId)
     if (rt) rt.destroy()

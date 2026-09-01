@@ -89,15 +89,16 @@ export class LogService {
   ): void {
     this.append({
       ts: Date.now(),
-      level, event,
+      level,
+      event: event ?? null,
       runId: opts.runId,
-      parentRunId: opts.parentRunId,
-      source: opts.source,
-      name: opts.name,
-      message: opts.message,
+      parentRunId: opts.parentRunId ?? null,
+      source: opts.source ?? null,
+      name: opts.name ?? null,
+      message: opts.message ?? null,
       data: opts.data,
-      stack: opts.stack,
-      conversationId: opts.conversationId,
+      stack: opts.stack ?? null,
+      conversationId: opts.conversationId ?? null,
     })
   }
 

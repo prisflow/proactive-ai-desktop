@@ -20,7 +20,7 @@ export interface WidgetNode {
    * 节点属性。不同 `type` 有不同 props 合约，由 `components/widget-system/atoms.tsx` 中的对应组件解析。
    * 例如 Text 会用 `content`、`size`、`color`，Button 会用 `content`、`variant` 等。
    */
-  props?: Record<string, unknown>
+  props: Record<string, unknown> | null
   /** 子节点列表。Row/Column 等容器类型通过 children 实现嵌套布局。 */
-  children?: WidgetNode[]
+  children: WidgetNode[] | null
 }

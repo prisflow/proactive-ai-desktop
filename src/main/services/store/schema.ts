@@ -3,7 +3,8 @@
  * 作为类型安全的 schema 单源，替代 DbConversation/DbMessage 手写接口。
  * 时间戳均以 ISO 字符串存储（text），不用 SQLite 的 datetime 类型。
  */
-import { sqliteTable, text, integer, index, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, index, primaryKey, unique, check } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
 
 /** 全局配置表：key-value 存储，key 为 GlobalSettings 的字段名。 */
 export const configTable = sqliteTable('config', {
@@ -87,6 +88,8 @@ export const hostMemoryTable = sqliteTable('host_memory', {
 }, (table) => [
   index('idx_host_memory_cid_ctx').on(table.conversationId, table.contextId),
   index('idx_host_memory_slot').on(table.conversationId, table.contextId, table.slot),
+  /** 同一会话+上下文下 slot 唯一（记忆覆盖写语义的 DB 兜底）。 */
+  unique('uq_host_memory_cid_ctx_slot').on(table.conversationId, table.contextId, table.slot),
 ])
 
 /** 消息表：一个对话的多条消息，级联删除。 */
@@ -99,8 +102,8 @@ export const messagesTable = sqliteTable('messages', {
   role: text('role').notNull().$type<'user' | 'context'>(),
   /** 消息正文（用户文本或 AI 回复内容）。 */
   content: text('content').notNull(),
-  /** 产生该消息时的活跃上下文 ID（当前为 null，未来插件上下文用）。 */
-  contextId: text('context_id'),
+  /** 产生该消息时的活跃上下文 ID（'main' = 主上下文；子上下文为子上下文 id）。 */
+  contextId: text('context_id').notNull().default('main'),
   /** 附加数据（JSON 字符串，如 uiRender 组件树 / rawResponse 等）。 */
   extraData: text('extra_data'),
   /** 创建时间（ISO 字符串）。 */
@@ -108,4 +111,6 @@ export const messagesTable = sqliteTable('messages', {
 }, (table) => [
   /** 按对话查消息的复合索引（conversationId + createdAt 排序）。 */
   index('idx_messages_conversation').on(table.conversationId, table.createdAt),
+  /** 角色枚举约束（与 $type<'user' | 'context'> 一致，DB 层兜底）。 */
+  check('chk_messages_role', sql`${table.role} IN ('user','context')`),
 ])

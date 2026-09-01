@@ -50,7 +50,7 @@ export const useChatStore = create<ChatStore>()(
           let widgetNode: WidgetNode = {
             type: data.component as WidgetNodeType,
             props: data.props ?? {},
-            children: data.children as WidgetNode[] | undefined,
+            children: data.children as WidgetNode[] | null,
           }
           const plotRows = extractPlotRows(widgetNode)
           const deepHasDeath = (node: WidgetNode): boolean => {

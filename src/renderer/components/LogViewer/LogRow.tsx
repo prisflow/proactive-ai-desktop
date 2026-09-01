@@ -46,7 +46,7 @@ export default function LogRow({ row }: { row: AggRow }) {
       : row.ok === true && row.level === 'info'
         ? { label: 'OK', cls: 'bg-emerald-500' }
         : { label: row.level.toUpperCase(), cls: LEVEL_COLORS[row.level] || 'bg-[var(--app-muted)]' }
-  const disp = displayName(row.source, row.name)
+  const disp = displayName(row.source ?? undefined, row.name)
 
   return (
     <div className="border-b border-[color:var(--app-border)] last:border-b-0">

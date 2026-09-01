@@ -22,7 +22,6 @@
     "tokenTitle": "Token Usage",
     "weekly": "Weekly",
     "hourly": "Today by Hour",
-    "toolSplit": "Context vs Tools",
     "inputHit": "Input (cache hit)",
     "inputMiss": "Input (cache miss)",
     "output": "Output",

@@ -1,8 +1,9 @@
 import { useChatStore } from '../stores/chatStore'
+import type { ChatMessage } from '@shared/types/domain'
 
 interface UseChatReturn {
   sendMessage: (conversationId: string, text: string) => Promise<void>
-  messages: import('@shared').ChatMessage[]
+  messages: ChatMessage[]
 }
 
 export function useChat(conversationId: string): UseChatReturn {

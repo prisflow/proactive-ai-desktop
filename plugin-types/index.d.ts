@@ -255,12 +255,17 @@ export interface PluginSetupAPI {
     /** 整体覆盖写入插件持久化数据。 */
     set(data: unknown): void
   }
-  /** 宿主通用记忆层（host_memory 表，按会话+上下文隔离）。 */
-  memory: {
-    set(slot: string, data: string, opts?: { conversationId?: string; contextId?: string }): void
-    get(slot: string, opts?: { conversationId?: string; contextId?: string }): string | null
-    search(query: string, opts?: { conversationId?: string; contextId?: string }): Array<{ slot: string; data: string }>
-    remove(slot: string, opts?: { conversationId?: string; contextId?: string }): boolean
+  /**
+   * 头部稳定层注入（三段式 system 稳定前缀）。
+   * 向当前会话+上下文的头部注入固定/慢变文本（如世界状态卡），
+   * 宿主组装 LLM 请求时自动读入稳定前缀（慢变 → 缓存恒命中）。
+   * 归属自动取自宿主执行上下文，插件无需传会话 ID。
+   */
+  prompts: {
+    /** 注入/更新头部稳定层文本（覆盖该会话+上下文的注入位）。 */
+    set(text: string): void
+    /** 移除已注入的文本。 */
+    remove(text: string): void
   }
   /** 宿主 LLM 能力：结构化生成（schema 校验失败自动重试）。 */
   llm: {
@@ -275,22 +280,10 @@ export interface PluginSetupAPI {
   flow: {
     /** 注册一张图（节点链）。 */
     register(def: FlowDefinition): boolean
-    /** 执行一张图，渲染经 push 通道推送并落库。 */
+    /** 执行一张图，渲染经 push 通道推送并落库。会话归属自动取自执行上下文。 */
     run(
       name: string,
-      input: unknown,
-      opts?: { conversationId?: string; contextId?: string }
+      input: unknown
     ): Promise<FlowResult>
-  }
-  /** 三段式骨架提示词注入（优化缓存命中）。 */
-  prompts: {
-    /** inject(where, text)：'prefix' 稳定前缀（system 内）｜'suffix' 尾部指令前。 */
-    inject(where: 'prefix' | 'suffix', text: string, opts?: { contextId?: string }): void
-    /** 移除注入。 */
-    remove(where: 'prefix' | 'suffix', text: string, opts?: { contextId?: string }): void
-  }
-  /** 压缩层配置（覆盖 ContextDefinition.compaction 或全局默认）。 */
-  compaction: {
-    configure(cfg: Partial<ContextCompactionConfig>, opts?: { contextId?: string }): void
   }
 }

@@ -229,7 +229,7 @@ export class Runtime {
             conversationStore.addMessage(this.conversationId, {
               role: 'context',
               content: '[工具调用已中断，未执行]',
-              contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+              contextId: this.activeContextId,
               extraData: { kind: 'tool-result', toolName: 'host_recover', toolCallId: tc.id },
             })
           }
@@ -299,7 +299,7 @@ export class Runtime {
       kind: 'context-switch',
       conversationId: this.conversationId,
       runId: uniqueRunId('ctx'),
-      ...(contextId ? { contextId } : {}),
+      contextId: contextId ?? null,
     } satisfies AgentStreamPushV1)
   }
 
@@ -309,7 +309,7 @@ export class Runtime {
     const record = conversationStore.addMessage(this.conversationId, {
       role: 'user',
       content: userText,
-      contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+      contextId: this.activeContextId,
       extraData: null,
     })
     this.pushHistory(this.activeContextId, { role: 'user', content: userText })
@@ -399,7 +399,7 @@ export class Runtime {
           const pendingDb: Array<Omit<MessageRecord, 'id' | 'createdAt' | 'conversationId'>> = [{
             role: 'context',
             content: fullText,
-            contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+            contextId: this.activeContextId,
             extraData: {
               finishReason: 'tool_calls',
               toolCalls: toolCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.args })),
@@ -416,7 +416,7 @@ export class Runtime {
               pendingDb.push({
                 role: 'context',
                 content: '[工具调用已中断，未执行]',
-                contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+                contextId: this.activeContextId,
                 extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
               })
               continue
@@ -489,7 +489,7 @@ export class Runtime {
             conversationStore.addMessage(this.conversationId, {
               role: 'context',
               content: fullText,
-              contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+              contextId: this.activeContextId,
               extraData: { rawResponse: { content: fullText, finishReason: 'stop' } },
             })
             this.pushHistory(this.activeContextId, { role: 'assistant', content: fullText })
@@ -528,7 +528,7 @@ export class Runtime {
         conversationStore.addMessage(this.conversationId, {
           role: 'context',
           content: fullText,
-          contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+          contextId: this.activeContextId,
           extraData: { rawResponse: { content: fullText, finishReason: 'abort' } },
         })
         this.pushHistory(this.activeContextId, { role: 'assistant', content: fullText })
@@ -589,7 +589,7 @@ export class Runtime {
     conversationStore.addMessage(this.conversationId, {
       role: 'context',
       content: '[此前对话已压缩进摘要]',
-      contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+      contextId: this.activeContextId,
       extraData: { kind: 'compact-marker' },
     })
   }
@@ -710,7 +710,7 @@ export class Runtime {
       pendingDb.push({
         role: 'context',
         content,
-        contextId: this.activeContextId === 'main' ? null : this.activeContextId,
+        contextId: this.activeContextId,
         extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
       })
       return tc.name === 'host_yield' ? 'stop' : 'ok'
@@ -766,7 +766,7 @@ export class Runtime {
     pendingDb.push({
       role: 'context',
       content: placeholder,
-      contextId: null,
+      contextId: 'main',
       extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
     })
     // 实时推送切换标签（前端不经过 IPC 全量拉取）
@@ -814,13 +814,13 @@ export class Runtime {
     pendingDb.push({
       role: 'context',
       content: '[context-switch: 你已回到主上下文]',
-      contextId: null,
+      contextId: 'main',
       extraData: { kind: 'event-status', toolName: tc.name },
     })
     pendingDb.push({
       role: 'context',
       content: summary,
-      contextId: null,
+      contextId: 'main',
       extraData: { kind: 'event-status', toolName: tc.name },
     })
 
@@ -875,7 +875,7 @@ export class Runtime {
     // tool 消息 content 兜底：空文本（工具无可见结果）时用状态文本，防 OpenAI 空 content 拒绝
     const toolContent = parts.join('\n') || statusText
 
-    const ctxIdForDb = this.activeContextId === 'main' ? null : this.activeContextId
+    const ctxIdForDb = this.activeContextId
 
     // 收集待落库（不立即写 DB）：顺序 tool-result → event-status，由 agentLoop 统一在 assistant 之后落
     if (toolContent) {

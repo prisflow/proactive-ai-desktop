@@ -1,18 +1,12 @@
 /**
  * 全局配置持久化。读写 SQLite config 表，启动时自动加载。
+ *
+ * 语义：get() 返回数据库原样（未设置 = null），不做默认值合并。
+ * 默认值兜底由前端显示处（theme/locale/fontSize）与后端请求处（model/baseURL）各自完成。
  */
 import type { GlobalSettings } from '@shared/types/domain'
-import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE } from '@shared/constants'
 import { databaseService } from './database'
 import { configTable } from './schema'
-
-const DEFAULT_CONFIG: GlobalSettings = {
-  apiKey: '',
-  model: DEFAULT_MODEL,
-  baseURL: DEFAULT_BASE_URL,
-  theme: DEFAULT_THEME,
-  fontSize: DEFAULT_FONT_SIZE,
-}
 
 /** GlobalSettings 中需要持久化的键集合 */
 const CONFIG_KEYS: (keyof GlobalSettings)[] = ['apiKey', 'model', 'baseURL', 'locale', 'theme', 'fontSize']
@@ -20,45 +14,55 @@ const CONFIG_KEYS: (keyof GlobalSettings)[] = ['apiKey', 'model', 'baseURL', 'lo
 export class GlobalConfigStore {
   private cache: GlobalSettings | null = null
 
-  /** 读取全部配置。先检查缓存，再从 SQLite 读取。 */
+  /** 读取全部配置。返回数据库原样；缺失键为 null（无默认合并）。 */
   async get(): Promise<GlobalSettings> {
     if (this.cache) return { ...this.cache }
 
     const db = databaseService.getDb()
     const rows = db.select().from(configTable).all()
 
-    if (rows.length > 0) {
-      const parsed: Record<string, unknown> = {}
-      for (const row of rows) {
-        parsed[row.key] = JSON.parse(row.value)
-      }
-      this.cache = { ...DEFAULT_CONFIG, ...parsed } as GlobalSettings
-    } else {
-      this.cache = { ...DEFAULT_CONFIG }
+    const config: GlobalSettings = {
+      apiKey: null,
+      model: null,
+      baseURL: null,
+      locale: null,
+      theme: null,
+      fontSize: null,
     }
+    for (const row of rows) {
+      if (!CONFIG_KEYS.includes(row.key as keyof GlobalSettings)) continue
+      try {
+        const v = JSON.parse(row.value) as unknown
+        ;(config as unknown as Record<string, unknown>)[row.key] = v
+      } catch {
+        // 单值解析失败跳过，保持 null
+      }
+    }
+    this.cache = config
 
     return { ...this.cache }
   }
 
-  /** 写入配置并持久化到 SQLite。 */
+  /** 写入配置并持久化到 SQLite。null 表示清除该键（存 null）。 */
   async set(config: Partial<GlobalSettings>): Promise<GlobalSettings> {
     const current = await this.get()
     const next: GlobalSettings = { ...current, ...config }
     this.cache = next
 
     const sqlite = databaseService.getClient()
-    // 预编译 upsert 语句：key 已存在则整行替换，不存在则插入（SQLite 的 INSERT OR REPLACE 语义）
     const upsert = sqlite.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)')
-    // 事务包裹：本次配置的多个键要么全部写入成功，要么全部回滚，避免半写状态
+    const deleteStmt = sqlite.prepare('DELETE FROM config WHERE key = ?')
     const txn = sqlite.transaction(() => {
       for (const [key, value] of Object.entries(config)) {
-        // 只持久化白名单内的键，未知键（如前端传来的多余字段）直接跳过
         if (!CONFIG_KEYS.includes(key as keyof GlobalSettings)) continue
-        // 值以 JSON 字符串落库，键为 GlobalSettings 字段名；带类型捕获 write 返回占位参数
-        upsert.run(key, JSON.stringify(value))
+        // null = 清除该键（落后于 get 的 null 语义）
+        if (value === null) {
+          deleteStmt.run(key)
+        } else {
+          upsert.run(key, JSON.stringify(value))
+        }
       }
     })
-    // 提交事务（同步执行，better-sqlite3 的 transaction 是同步 API）
     txn()
 
     return { ...next }

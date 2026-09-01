@@ -3,11 +3,11 @@ import { useConfigStore } from '@/stores/configStore'
 
 /**
  * 解析主题配置值，返回实际应用的亮/暗。
- * 'auto' 时跟随系统 prefers-color-scheme，默认 fallback 为 dark。
+ * 'auto' 时跟随系统 prefers-color-scheme；null（未设置）默认 fallback 为 dark。
  */
-function resolveTheme(theme: 'light' | 'dark' | 'auto' | undefined): 'light' | 'dark' {
+function resolveTheme(theme: 'light' | 'dark' | 'auto' | null): 'light' | 'dark' {
   if (theme === 'light') return 'light'
-  if (theme === 'dark' || theme === undefined) return 'dark'
+  if (theme === 'dark' || theme === null) return 'dark'
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 

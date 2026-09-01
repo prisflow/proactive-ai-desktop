@@ -11,6 +11,7 @@ import { createBuiltinTools } from './modules/conversations/tool/builtin-tools'
 import { pluginLoader, syncBuiltinPlugins } from './modules/plugin'
 import { flowHost } from './modules/conversations/flow/flow-host'
 import { LlmProvider } from './modules/llm'
+import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '@shared/constants'
 
 const WINDOW_TITLE = 'ProactiveAI'
 
@@ -43,7 +44,12 @@ app.whenReady().then(async () => {
   setInterval(() => { conversationStore.purgeArchived(7) }, 24 * 60 * 60 * 1000)
   const config = await globalConfigStore.get()
   // 注入图执行器的共享 LLM provider（图内 llm 节点用）
-  flowHost.setLlmProvider(new LlmProvider({ apiKey: config.apiKey, model: config.model, baseURL: config.baseURL }))
+  // null（未设置）时用默认值兜底；apiKey 未配置传空串（LLM 请求自会失败，前端有提示）
+  flowHost.setLlmProvider(new LlmProvider({
+    apiKey: config.apiKey ?? '',
+    model: config.model ?? DEFAULT_MODEL,
+    baseURL: config.baseURL ?? DEFAULT_BASE_URL,
+  }))
 
   // 注册内置工具到全局 ToolRegistry（一次性）
   for (const def of createBuiltinTools()) {

@@ -25,7 +25,7 @@ void i18n.use(initReactI18next).init({
  * 根据配置切换当前语言。
  * locale 为空或无法识别时由 normalizeLocale 回退到默认语言。
  */
-export function syncI18nFromConfig(locale?: string): void {
+export function syncI18nFromConfig(locale?: string | null): void {
   void i18n.changeLanguage(normalizeLocale(locale))
 }
 

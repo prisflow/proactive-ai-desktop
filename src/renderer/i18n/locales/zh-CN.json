@@ -22,7 +22,6 @@
     "tokenTitle": "Token 使用",
     "weekly": "一周用量",
     "hourly": "今日分时",
-    "toolSplit": "上下文与工具",
     "inputHit": "输入（命中缓存）",
     "inputMiss": "输入（未命中缓存）",
     "output": "输出",

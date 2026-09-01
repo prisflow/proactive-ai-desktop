@@ -1,4 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { GlobalSettings, Conversation, ChatMessage } from '@shared/types/domain'
+import type { LogEntry, LogQuery } from '@shared/types/log'
+import type { AgentStreamPushV1 } from '@shared/types/stream'
+import type { UsageTotals, UsageDaily, UsageHourly, UsageContextDaily } from '@shared/types/usage'
+import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
 
 /**
  * 通过 contextBridge 暴露 IPC 接口到渲染进程。
@@ -27,35 +32,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** 全局配置（LLM API Key / 模型 / 主题等）。 */
   store: {
     /** 读取全部配置。 */
-    getConfig: (): Promise<any> => ipcRenderer.invoke('store:config:get'),
+    getConfig: (): Promise<GlobalSettings> => ipcRenderer.invoke('store:config:get'),
     /** 写入配置。 */
-    setConfig: (config: any): Promise<any> => ipcRenderer.invoke('store:config:set', config),
+    setConfig: (config: Partial<GlobalSettings>): Promise<GlobalSettings> => ipcRenderer.invoke('store:config:set', config),
   },
 
   /** 对话管理。 */
   conversations: {
     /** 获取对话列表（不含已归档）。 */
-    list: (): Promise<any[]> => ipcRenderer.invoke('conversations:list'),
+    list: (): Promise<Conversation[]> => ipcRenderer.invoke('conversations:list'),
     /** 创建新对话，返回含 UUID 的 Conversation。 */
-    create: (title?: string): Promise<any> => ipcRenderer.invoke('conversations:create', title),
+    create: (title?: string): Promise<Conversation> => ipcRenderer.invoke('conversations:create', title),
     /** 软删除对话。 */
     delete: (id: string): Promise<boolean> => ipcRenderer.invoke('conversations:delete', id),
     /** 重命名对话。 */
-    rename: (id: string, title: string): Promise<any> => ipcRenderer.invoke('conversations:rename', id, title),
+    rename: (id: string, title: string): Promise<Conversation | undefined> => ipcRenderer.invoke('conversations:rename', id, title),
     /** 获取指定对话的消息列表。 */
-    getMessages: (id: string): Promise<any[]> => ipcRenderer.invoke('conversations:getMessages', id),
+    getMessages: (id: string): Promise<ChatMessage[]> => ipcRenderer.invoke('conversations:getMessages', id),
   },
 
   /** 用户输入与 LLM 流式响应。 */
   chat: {
     /** 发送用户消息到 Runtime，返回已持久化的 ChatMessage。 */
-    send: (conversationId: string, text: string): Promise<any> =>
+    send: (conversationId: string, text: string): Promise<ChatMessage> =>
       ipcRenderer.invoke('chat:send', conversationId, text),
     /** 中断当前流式响应。 */
     abort: (conversationId: string): Promise<void> =>
       ipcRenderer.invoke('chat:abort', conversationId),
     /** 订阅流式推送（LLM 回复的 delta chunk 或 error 事件）。 */
-    onStream: (callback: (event: any, data: any) => void) => {
+    onStream: (callback: (event: any, data: AgentStreamPushV1) => void) => {
       ipcRenderer.on('chat:stream', callback)
     },
     /** 取消流式推送订阅。 */
@@ -67,39 +72,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** 日志查询。 */
   logs: {
     /** 内存热查询（最近 500 条内）。 */
-    query: (q?: any): Promise<any[]> => ipcRenderer.invoke('logs:query', q),
+    query: (q?: LogQuery): Promise<LogEntry[]> => ipcRenderer.invoke('logs:query', q),
     /** 全量查询（disk + ring buffer）。 */
-    queryAll: (q?: any): Promise<any[]> => ipcRenderer.invoke('logs:queryAll', q),
+    queryAll: (q?: LogQuery): Promise<LogEntry[]> => ipcRenderer.invoke('logs:queryAll', q),
     /** 链式追踪（按 parentRunId BFS 遍历调用树）。 */
-    getChain: (runId: string, maxDepth?: number): Promise<any[]> =>
+    getChain: (runId: string, maxDepth?: number): Promise<LogEntry[]> =>
       ipcRenderer.invoke('logs:getChain', runId, maxDepth),
     /** 清空所有日志。 */
     clear: (): Promise<boolean> => ipcRenderer.invoke('logs:clear'),
     /** 获取最近错误日志。 */
-    getRecentErrors: (limit?: number): Promise<any[]> =>
+    getRecentErrors: (limit?: number): Promise<LogEntry[]> =>
       ipcRenderer.invoke('logs:getRecentErrors', limit),
   },
 
   /** Token 使用总量。 */
   usage: {
-    getTotals: (): Promise<any> => ipcRenderer.invoke('usage:getTotals'),
-    getDaily: (days?: number): Promise<any> => ipcRenderer.invoke('usage:getDaily', days),
-    getHourly: (): Promise<any> => ipcRenderer.invoke('usage:getHourly'),
-    getToolSplit: (): Promise<any> => ipcRenderer.invoke('usage:getToolSplit'),
-    getContextDaily: (): Promise<any> => ipcRenderer.invoke('usage:getContextDaily'),
+    getTotals: (): Promise<UsageTotals> => ipcRenderer.invoke('usage:getTotals'),
+    getDaily: (days?: number): Promise<UsageDaily[]> => ipcRenderer.invoke('usage:getDaily', days),
+    getHourly: (): Promise<UsageHourly[]> => ipcRenderer.invoke('usage:getHourly'),
+    getContextDaily: (): Promise<UsageContextDaily[]> => ipcRenderer.invoke('usage:getContextDaily'),
     clear: (): Promise<boolean> => ipcRenderer.invoke('usage:clear'),
   },
 
   /** 插件管理。 */
   plugins: {
     /** 打开文件选择器导入插件 zip，返回导入结果。 */
-    importZip: (): Promise<{ ok: boolean; error?: string; plugin?: { id: string; name: string; version: string } }> =>
+    importZip: (): Promise<PluginImportResult> =>
       ipcRenderer.invoke('plugins:importZip'),
     /** 已安装插件清单。 */
-    list: (): Promise<Array<{ id: string; name: string; version: string; description?: string; entry: string; loaded: boolean }>> =>
+    list: (): Promise<PluginInfo[]> =>
       ipcRenderer.invoke('plugins:list'),
     /** 卸载插件（注销注册项并删除文件）。 */
-    uninstall: (entryName: string): Promise<{ ok: boolean; error?: string }> =>
+    uninstall: (entryName: string): Promise<PluginUninstallResult> =>
       ipcRenderer.invoke('plugins:uninstall', entryName),
   },
 })

@@ -1,12 +1,12 @@
 import OpenAI from 'openai'
-import * as fs from 'fs'
 import { addUsage } from '../services/usage-totals'
+import { DEFAULT_MAX_OUTPUT_TOKENS } from '@shared/constants'
 
-/** LLM API 连接配置。 */
+/** LLM API 连接配置。baseURL 与 GlobalSettings 数据库约束对齐（string | null）。 */
 export interface LlmConfig {
   apiKey: string
   model: string
-  baseURL?: string
+  baseURL: string | null
 }
 
 /** OpenAI Chat Completion messages 参数中的单条消息。 */
@@ -78,6 +78,31 @@ export type StreamChunk =
   | { kind: 'done'; finishReason: 'tool_calls'; toolCalls: Array<{ id: string; name: string; args: string }> }
 
 /**
+ * 从 OpenAI usage 响应中提取 token 计数并落库（chat / chatStream 共用）。
+ * 兼容多种 usage 形态：非流式 completion.usage、流式 chunk.usage（需 include_usage）。
+ * 结构异常时静默跳过，不影响主流程。
+ * @param usage OpenAI 响应的 usage 字段
+ * @param kind 调用类型：'tool_calls' = 工具调用轮；'text' = 纯文本轮
+ * @param contextId 产生该调用的上下文 ID（缺省归入 'main'）
+ */
+function trackUsage(usage: unknown, kind: 'text' | 'tool_calls', contextId?: string): void {
+  try {
+    if (!usage) return
+    const u = usage as {
+      prompt_tokens?: number
+      completion_tokens?: number
+      prompt_tokens_details?: { cached_tokens?: number }
+      prompt_cache_hit_tokens?: number
+      cached_tokens?: number
+    }
+    const prompt = Number(u.prompt_tokens ?? 0)
+    const completion = Number(u.completion_tokens ?? 0)
+    const cached = Number(u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0)
+    if (prompt || completion) addUsage(prompt, completion, cached, kind, contextId)
+  } catch {}
+}
+
+/**
  * LLM 调用模块。封装 OpenAI API 调用，支持工具调用返回。
  */
 export class LlmProvider {
@@ -86,7 +111,8 @@ export class LlmProvider {
   constructor(private config: LlmConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
-      baseURL: config.baseURL,
+      // null（未配置）→ 不传，走 OpenAI SDK 默认地址
+      baseURL: config.baseURL ?? undefined,
     })
   }
 
@@ -96,32 +122,18 @@ export class LlmProvider {
    * @returns LlmResult，由调用方决定是直接输出还是继续执行工具。
    */
   async chat(messages: LlmMessage[], tools?: LlmToolDef[], signal?: AbortSignal, maxTokens?: number, responseFormat?: { type: 'json_object' }, contextId?: string): Promise<LlmResult> {
-    // 调试：REQ 全量展示（验证继承上下文/聊天记录是否按预期拼入），成功 RES 不记录
-    let _reqHead = ''
-    try {
-      const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-      _reqHead = messages.map((m) => `[${m.role}] ${String(m.content || '').replace(/\n/g, '\\n')}${m.tool_calls ? ' tool_calls=' + JSON.stringify(m.tool_calls) : ''}`).join(' | ')
-    } catch {}
     const completion = await this.client.chat.completions.create({
       model: this.config.model,
       messages: messages as any,
       ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-      max_tokens: maxTokens ?? 384000,
+      max_tokens: maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }, signal ? { signal } : {})
 
     // 持久化 token 使用（输入/输出分开，缓存命中算命中率）
     const choice = completion.choices[0]
-    try {
-      const u: any = (completion as any).usage
-      if (u) {
-        const prompt = Number(u.prompt_tokens ?? 0)
-        const completionTok = Number(u.completion_tokens ?? 0)
-        const cached = Number(u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0)
-        const kind = (choice?.message as any)?.tool_calls?.length ? 'tool_calls' as const : 'text' as const
-        if (prompt || completionTok) addUsage(prompt, completionTok, cached, kind, contextId)
-      }
-    } catch {}
+    const kind = (choice?.message as any)?.tool_calls?.length ? 'tool_calls' as const : 'text' as const
+    trackUsage((completion as any).usage, kind, contextId)
 
     const msg = choice?.message
 
@@ -133,18 +145,10 @@ export class LlmProvider {
           return { id: tc.id, name: fn.name, args: fn.arguments }
         }),
       }
-      try {
-        const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-        fs.appendFileSync(p, `[DONE ${new Date().toISOString()} ctx=${contextId || ''}] REQ=${_reqHead}\n`, 'utf8')
-      } catch {}
       return res
     }
 
     const text = msg?.content || ''
-    try {
-      const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-      fs.appendFileSync(p, `[DONE ${new Date().toISOString()} ctx=${contextId || ''}] REQ=${_reqHead}\n`, 'utf8')
-    } catch {}
     return { kind: 'text', text }
   }
 
@@ -153,45 +157,21 @@ export class LlmProvider {
    * 支持 AbortSignal 用于流式中断。
    */
   async *chatStream(messages: LlmMessage[], tools?: LlmToolDef[], signal?: AbortSignal): AsyncGenerator<StreamChunk> {
-    // 调试：REQ 全量展示，成功 RES 不记录
-    let _reqHead = ''
-    try {
-      const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-      _reqHead = messages.map((m) => `[${m.role}] ${String(m.content || '').replace(/\n/g, '\\n')}${m.tool_calls ? ' tool_calls=' + JSON.stringify(m.tool_calls) : ''}`).join(' | ')
-    } catch {}
-    let stream: any
-    try {
-      stream = await this.client.chat.completions.create({
+    const stream: any = await this.client.chat.completions.create({
       model: this.config.model,
       messages: messages as any,
       ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-      max_tokens: 384000,
+      max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
       stream: true,
       stream_options: { include_usage: true } as any,
     }, signal ? { signal } : {})
-    } catch (e) {
-      try {
-        const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-        const msg = e instanceof Error ? e.message : String(e)
-        fs.appendFileSync(p, `[RES-STREAM-ERR ${new Date().toISOString()}] ${msg}\n[DONE-STREAM-ERR ${new Date().toISOString()}] REQ=${_reqHead} | ERR=${msg}\n`, 'utf8')
-      } catch {}
-      throw e
-    }
 
     // 聚合流式工具调用参数（OpenAI 将 tool_calls 的 arguments 拆成多个 chunk）
     const toolCallAccumulators = new Map<number, { id?: string; name?: string; args: string }>()
 
     for await (const chunk of stream) {
       // 流式 usage（需 stream_options.include_usage）
-      try {
-        const u: any = (chunk as any).usage
-        if (u) {
-          const prompt = Number(u.prompt_tokens ?? 0)
-          const completionTok = Number(u.completion_tokens ?? 0)
-          const cached = Number(u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0)
-          if (prompt || completionTok) addUsage(prompt, completionTok, cached, 'text')
-        }
-      } catch {}
+      trackUsage((chunk as any).usage, 'text')
       const choice = chunk.choices?.[0]
       if (!choice) continue
 
@@ -212,10 +192,6 @@ export class LlmProvider {
       }
 
       if (choice.finish_reason === 'stop') {
-        try {
-          const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-          fs.appendFileSync(p, `[DONE-STREAM ${new Date().toISOString()}] REQ=${_reqHead}\n`, 'utf8')
-        } catch {}
         yield { kind: 'done', finishReason: 'stop' }
         return
       }
@@ -223,10 +199,6 @@ export class LlmProvider {
         const toolCalls = Array.from(toolCallAccumulators.values())
           .filter((tc): tc is { id: string; name: string; args: string } => !!tc.id && !!tc.name)
           .map((tc) => ({ id: tc.id, name: tc.name, args: tc.args }))
-        try {
-          const p = 'C:\\Users\\31100\\AppData\\Local\\Temp\\llm-raw.log'
-          fs.appendFileSync(p, `[DONE-STREAM ${new Date().toISOString()}] REQ=${_reqHead}\n`, 'utf8')
-        } catch {}
         yield { kind: 'done', finishReason: 'tool_calls', toolCalls }
         return
       }

@@ -1,19 +1,22 @@
 /**
  * 全局应用设置，由 Main 进程持久化，Renderer 通过 IPC 读写。
+ * 数据模型层：未设置 = null（默认值合并由前端显示 / 后端请求时各自兜底，不进本模型）。
  */
+import type { WidgetNode } from './ui'
+
 export interface GlobalSettings {
-  /** LLM API Key。明文存储于本地配置文件中，后续建议接入系统密钥链。 */
-  apiKey: string
-  /** LLM 模型名。 */
-  model: string
-  /** 自定义 API 端点 URL。留空时使用默认地址。 */
-  baseURL?: string
-  /** 界面语言 & 日期格式 locale。 */
-  locale?: 'zh-CN' | 'en-US'
-  /** 界面主题：亮色 / 暗色 / 跟随系统。 */
-  theme?: 'light' | 'dark' | 'auto'
-  /** 消息区域字体大小（px），默认 16。 */
-  fontSize?: number
+  /** LLM API Key。未配置为 null。明文存储于本地配置文件中，后续建议接入系统密钥链。 */
+  apiKey: string | null
+  /** LLM 模型名。未设置（用默认模型）为 null。 */
+  model: string | null
+  /** 自定义 API 端点 URL。未设置（用默认地址）为 null。 */
+  baseURL: string | null
+  /** 界面语言 & 日期格式 locale。未设置为 null。 */
+  locale: 'zh-CN' | 'en-US' | null
+  /** 界面主题：亮色 / 暗色 / 跟随系统。未设置为 null。 */
+  theme: 'light' | 'dark' | 'auto' | null
+  /** 消息区域字体大小（px）。未设置为 null。 */
+  fontSize: number | null
 }
 
 /** 对话元数据。 */
@@ -35,8 +38,8 @@ export interface ChatMessage {
   content: string
   createdAt: number
   /** 产生该消息的上下文 ID（null = 主上下文，旧数据兼容）。 */
-  contextId?: string | null
+  contextId: string | null
   /** 消息种类：'context-switch' = 上下文切换分隔标签（不渲染气泡）。 */
-  kind?: 'context-switch'
-  widgetNode?: import('./ui').WidgetNode
+  kind: 'context-switch' | null
+  widgetNode: WidgetNode | null
 }

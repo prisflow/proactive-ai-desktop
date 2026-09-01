@@ -36,7 +36,7 @@ function toMessageRecord(row: typeof messagesTable.$inferSelect): MessageRecord 
     conversationId: row.conversationId,
     role: row.role as MessageRole,
     content: row.content,
-    contextId: row.contextId ?? null,
+    contextId: row.contextId,
     extraData: row.extraData ? JSON.parse(row.extraData) : null,
     createdAt: new Date(row.createdAt).getTime(),
   }
@@ -183,7 +183,7 @@ export class ConversationStore {
       conversationId,
       role: msg.role,
       content: msg.content,
-      contextId: msg.contextId ?? null,
+      contextId: msg.contextId,
       extraData: msg.extraData ? JSON.stringify(msg.extraData) : null,
       createdAt,
     }).run()
@@ -198,7 +198,7 @@ export class ConversationStore {
       conversationId,
       role: msg.role,
       content: msg.content,
-      contextId: msg.contextId ?? null,
+      contextId: msg.contextId,
       extraData: msg.extraData ?? null,
       createdAt: nowMsVal,
     }

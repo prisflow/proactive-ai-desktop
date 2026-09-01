@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import type { GlobalSettings } from '@shared'
-import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE } from '@shared/constants'
 import { getConfig as getConfigApi, setConfig as setConfigApi } from '../api'
 import { syncI18nFromConfig } from '../i18n'
 
@@ -29,12 +28,14 @@ export const useConfigStore = create<ConfigStore>()(
     },
 
     resetConfig: async () => {
+      // 清空全部配置（null = 未设置），不再注入 DEFAULT 值
       const config = await setConfigApi({
-        apiKey: '',
-        model: DEFAULT_MODEL,
-        baseURL: DEFAULT_BASE_URL,
-        theme: DEFAULT_THEME,
-        fontSize: DEFAULT_FONT_SIZE,
+        apiKey: null,
+        model: null,
+        baseURL: null,
+        theme: null,
+        fontSize: null,
+        locale: null,
       })
       set({ config })
     },

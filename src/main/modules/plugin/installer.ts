@@ -4,6 +4,7 @@ import path from 'path'
 import AdmZip from 'adm-zip'
 import type { PluginManifest } from './types'
 import { isSemver } from './types'
+import type { PluginImportResult } from '@shared/types/plugin'
 import { logService, uniqueRunId } from '../../services/logger'
 /**
  * 插件安装器 —— zip 包导入与落盘。
@@ -17,12 +18,6 @@ import { logService, uniqueRunId } from '../../services/logger'
  *   userData/plugins/<entry>.json —— loader 的 fs.watch 扫描顶层 .js 即自动加载，
  *   无需修改 loader 的目录/加载逻辑。
  */
-
-export interface ImportResult {
-  ok: boolean
-  plugin?: { id: string; name: string; version: string; description?: string }
-  error?: string
-}
 
 /** 校验 plugin.json 内容。返回错误信息或 null（合法）。 */
 export function validateManifest(m: unknown): string | null {
@@ -39,7 +34,7 @@ export function validateManifest(m: unknown): string | null {
 }
 
 /** 从 zip 字节解析、校验并落盘插件。返回结果。 */
-export async function importPluginFromZip(zipPath: string, pluginsDir: string): Promise<ImportResult> {
+export async function importPluginFromZip(zipPath: string, pluginsDir: string): Promise<PluginImportResult> {
   try {
     if (!fs.existsSync(zipPath)) return { ok: false, error: '文件不存在' }
 

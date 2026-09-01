@@ -1,5 +1,6 @@
 import { logService, uniqueRunId } from '../../../services/logger'
 import { validateToolInput } from './schema-validate'
+import { withExecutionContext } from '../exec-context'
 import type { ToolDefinition, ToolCallMeta, ToolResult } from './types'
 
 /**
@@ -93,7 +94,13 @@ export class ToolRegistry {
     })
 
     try {
-      const result = await Promise.resolve(def.run(input as Record<string, unknown>, meta))
+      // 注入执行上下文：插件 API（memory/flow）从 ALS 自动读取会话归属
+      const result = await Promise.resolve(
+        withExecutionContext(
+          { conversationId: meta.conversationId ?? '', contextId: meta.contextId ?? 'main' },
+          () => def.run(input as Record<string, unknown>, meta),
+        ),
+      )
       // 失败时带 error 文本（flow/rules 返回的 {ok:false, error} 是正常返回值，非异常，不经过 catch）
       logService.log('info', 'end', {
         runId,

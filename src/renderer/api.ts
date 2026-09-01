@@ -1,11 +1,10 @@
 import { LogEntry, LogQuery, GlobalSettings, Conversation, ChatMessage } from '@shared'
+import type { AgentStreamPushV1 } from '@shared/types/stream'
+import type { UsageTotals, UsageDaily, UsageHourly, UsageContextDaily } from '@shared/types/usage'
+import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
 
-/** 流式推送数据（Main → Renderer，对应 AgentStreamPushV1）。 */
-export type ChatStreamData =
-  | { kind: 'stream'; conversationId: string; runId: string; delta: string; done: boolean }
-  | { kind: 'error'; conversationId?: string; runId?: string; message: string }
-  | { kind: 'ui_render'; conversationId: string; runId: string; component: string; props: Record<string, unknown>; children?: unknown[] }
-  | { kind: 'context-switch'; conversationId: string; runId: string; contextId?: string }
+/** 流式推送数据（Main → Renderer，与 shared AgentStreamPushV1 同源）。 */
+export type ChatStreamData = AgentStreamPushV1
 
 declare global {
   interface Window {
@@ -30,7 +29,7 @@ declare global {
       chat: {
         send: (conversationId: string, text: string) => Promise<ChatMessage>
         abort: (conversationId: string) => Promise<void>
-        onStream: (callback: (event: any, data: any) => void) => void
+        onStream: (callback: (event: any, data: AgentStreamPushV1) => void) => void
         offStream: () => void
       }
       logs: {
@@ -41,17 +40,16 @@ declare global {
         getRecentErrors: (limit?: number) => Promise<LogEntry[]>
       }
       usage: {
-        getTotals: () => Promise<{ promptTokens: number; completionTokens: number; cachedTokens: number; totalTokens: number; hitRate: number }>
-        getDaily: (days?: number) => Promise<Array<{ day: string; promptTokens: number; completionTokens: number; cachedTokens: number; hitRate: number }>>
-        getHourly: () => Promise<Array<{ hour: string; promptTokens: number; completionTokens: number; cachedTokens: number; hitRate: number; toolCalls: number; textCalls: number }>>
-        getToolSplit: () => Promise<{ textCalls: number; toolCalls: number; total: number }>
-        getContextDaily: () => Promise<Array<{ day: string; contexts: Record<string, number> }>>
+        getTotals: () => Promise<UsageTotals>
+        getDaily: (days?: number) => Promise<UsageDaily[]>
+        getHourly: () => Promise<UsageHourly[]>
+        getContextDaily: () => Promise<UsageContextDaily[]>
         clear: () => Promise<boolean>
       }
       plugins: {
-        importZip: () => Promise<{ ok: boolean; error?: string; plugin?: { id: string; name: string; version: string } }>
-        list: () => Promise<Array<{ id: string; name: string; version: string; description?: string; entry: string; loaded: boolean }>>
-        uninstall: (entryName: string) => Promise<{ ok: boolean; error?: string }>
+        importZip: () => Promise<PluginImportResult>
+        list: () => Promise<PluginInfo[]>
+        uninstall: (entryName: string) => Promise<PluginUninstallResult>
       }
     }
   }
@@ -104,7 +102,7 @@ export function chatAbort(conversationId: string): Promise<void> {
 
 /** 订阅流式推送（LLM 回复的 delta chunk）。 */
 export function onChatStream(callback: (data: ChatStreamData) => void): void {
-  window.electronAPI.chat.onStream((_event: any, data: ChatStreamData) => callback(data))
+  window.electronAPI.chat.onStream((_event: any, data: AgentStreamPushV1) => callback(data))
 }
 
 /** 取消流式推送订阅。 */
@@ -138,21 +136,18 @@ export function getRecentErrors(limit?: number): Promise<LogEntry[]> {
 }
 
 /** 获取 Token 使用总量（输入/输出分开，命中率）。 */
-export function getUsageTotals(): Promise<{ promptTokens: number; completionTokens: number; cachedTokens: number; totalTokens: number; hitRate: number }> {
+export function getUsageTotals(): Promise<UsageTotals> {
   return window.electronAPI.usage.getTotals()
 }
 
 /** 获取按日 Token 统计（一周）。 */
-export function getDailyUsage(days = 7): Promise<Array<{ day: string; promptTokens: number; completionTokens: number; cachedTokens: number; hitRate: number }>> {
+export function getDailyUsage(days = 7): Promise<UsageDaily[]> {
   return window.electronAPI.usage.getDaily(days)
 }
-export function getHourlyUsage(): Promise<Array<{ hour: string; promptTokens: number; completionTokens: number; cachedTokens: number; hitRate: number; toolCalls: number; textCalls: number }>> {
+export function getHourlyUsage(): Promise<UsageHourly[]> {
   return window.electronAPI.usage.getHourly()
 }
-export function getToolSplit(): Promise<{ textCalls: number; toolCalls: number; total: number }> {
-  return window.electronAPI.usage.getToolSplit()
-}
-export function getContextDaily(): Promise<Array<{ day: string; contexts: Record<string, number> }>> {
+export function getContextDaily(): Promise<UsageContextDaily[]> {
   return window.electronAPI.usage.getContextDaily()
 }
 

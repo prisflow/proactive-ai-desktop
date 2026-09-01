@@ -12,22 +12,23 @@
  */
 import { systemNote, type LlmMessage } from '../llm'
 import { memoryGet } from './tool/memory-store'
-import { resolveCompaction, promptInjectionStore } from './compaction/config'
+import { resolveCompaction } from './compaction/config'
+import { headInjectionStore } from './head-injection'
 import { contextRegistry } from './context/context-manager'
 
-/** 读慢变记忆层（context 配置的 prefixSlots）+ 插件 prefix 注入，拼为稳定前缀文本。 */
+/** 读慢变稳定层（context 配置的 prefixSlots 记忆 + 会话级头部注入），拼为稳定前缀文本。 */
 export function loadStablePrefix(conversationId: string, contextId: string): string {
   const cfg = resolveCompaction(contextRegistry.get(contextId)?.compaction)
   const parts: string[] = []
-  // per-context prefixSlots：默认 ['summary']，cultivation 配 ['world_setting','game_lore']
+  // per-context prefixSlots：默认 ['summary']，cultivation 配 ['game_lore']
   for (const slot of cfg.prefixSlots) {
     const row = memoryGet(conversationId, contextId, slot)
     if (row?.data) {
       parts.push(row.data)
     }
   }
-  // 插件 prefix 注入（固定提示词，慢变 → 缓存恒命中）
-  parts.push(...promptInjectionStore.get(contextId, 'prefix'))
+  // 插件头部注入（prompts.set，固定/慢变文本 → 缓存恒命中）
+  parts.push(...headInjectionStore.get(conversationId, contextId))
   return parts.join('\n\n')
 }
 
@@ -49,12 +50,9 @@ export function composeContextMessages(opts: {
   const stable = loadStablePrefix(opts.conversationId, opts.contextId)
   const systemContent = stable ? `【世界状态】\n${stable}` : ''
 
-  // 尾部指令块：插件 suffix 注入在前（固定文本），调用方 tail 在后（快变，不影响前缀命中）。
+  // 尾部指令块：调用方 tail 在后（快变，不影响前缀命中）。
   // 角色模板（initialPrompt）以 assistant 消息注入（保持尾部位置、不占 system 前缀、不影响缓存命中）
-  const suffixInjects = promptInjectionStore.get(opts.contextId, 'suffix')
-  const tail = suffixInjects.length
-    ? `${suffixInjects.join('\n\n')}\n\n${opts.tail}`
-    : opts.tail
+  const tail = opts.tail
 
   // 配对缝合：OpenAI 要求 assistant.tool_calls 必须被后续 tool 消息应答。
   // 历史中若存在未应答的 tool_calls（abort/崩溃/DB 排序错乱残留），不裁剪（裁剪会丢历史、误伤），

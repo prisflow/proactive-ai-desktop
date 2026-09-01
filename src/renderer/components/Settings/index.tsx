@@ -17,7 +17,7 @@ function Segmented<T extends string>({
   onChange,
 }: {
   options: { key: T; label: string }[]
-  value: T | undefined
+  value: T | null
   onChange: (v: T) => void
 }) {
   return (
@@ -223,7 +223,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                 <Label className="text-[var(--app-muted)] text-sm">{t('settings.apiKey')}</Label>
                 <Input
                   type="password"
-                  value={config.apiKey}
+                  value={config.apiKey ?? ''}
                   onChange={(e) => updateConfig({ apiKey: e.target.value })}
                   placeholder={t('settings.apiKeyPlaceholder')}
                   autoComplete="off"
@@ -232,7 +232,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               <div className="flex flex-col gap-2">
                 <Label className="text-[var(--app-muted)] text-sm">{t('settings.model')}</Label>
                 <Input
-                  value={config.model}
+                  value={config.model ?? ''}
                   onChange={(e) => updateConfig({ model: e.target.value })}
                 />
               </div>

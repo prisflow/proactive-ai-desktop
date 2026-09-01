@@ -5,9 +5,9 @@ export interface AggRow {
   runId: string
   ts: number
   level: LogLevel
-  source?: string
+  source: string | null
   name: string
-  message?: string
+  message: string | null
   ok?: boolean
   entries: LogEntry[]
 }

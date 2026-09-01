@@ -3,12 +3,17 @@ import path from 'path'
 import { getMainWindow } from './window'
 import { logService } from './services/logger'
 import { globalConfigStore, conversationStore } from './services/store'
-import { getUsageTotals, getDailyUsage, getHourlyUsage, getToolSplit, clearUsage } from './services/usage-totals'
-import type { ChatMessage, Conversation } from '@shared/types/domain'
+import { getUsageTotals, getDailyUsage, getHourlyUsage, clearUsage } from './services/usage-totals'
+import type { ChatMessage, Conversation, GlobalSettings } from '@shared/types/domain'
+import type { LogQuery } from '@shared/types/log'
+import type { WidgetNode, WidgetNodeType } from '@shared/types/ui'
+import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
 import { runtimeManager } from './modules/conversations/runtime-manager'
 import { LlmProvider, type LlmConfig } from './modules/llm'
 import { flowHost } from './modules/conversations/flow/flow-host'
 import { importPluginFromZip, pluginLoader } from './modules/plugin'
+import type { MessageRecord } from './services/store/database'
+import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '@shared/constants'
 
 /** MessageRecord → ChatMessage，role 映射 + uiRender 解析。
  * 内部消息过滤：event-status（工具执行状态文本）、tool-result（工具结果文本）与 compact-marker
@@ -16,7 +21,7 @@ import { importPluginFromZip, pluginLoader } from './modules/plugin'
  * 例外：host_enter/exit_subcontext 的 tool-result（占位应答）放行——它是上下文切换点的
  * 唯一可见载体，前端据此渲染"已进入/已回到"分隔标签（切换时机 = 标签时机）。
  * 空内容且无 widgetNode 的 context（如零文本的 assistant(tool_calls) 轮）也不显示，避免空气泡。 */
-function toChatMessage(msg: import('./services/store/database').MessageRecord): ChatMessage | null {
+function toChatMessage(msg: MessageRecord): ChatMessage | null {
   const kind = (msg.extraData as { kind?: string; toolName?: string } | null)?.kind
   const toolName = (msg.extraData as { toolName?: string } | null)?.toolName
   const isContextSwitch = kind === 'tool-result' && (toolName === 'host_enter_subcontext' || toolName === 'host_exit_subcontext')
@@ -27,7 +32,8 @@ function toChatMessage(msg: import('./services/store/database').MessageRecord): 
     content: msg.content,
     createdAt: msg.createdAt,
     contextId: msg.contextId,
-    kind: isContextSwitch ? 'context-switch' : undefined,
+    kind: isContextSwitch ? 'context-switch' : null,
+    widgetNode: null,
   }
   // 切换占位：enter 的占位 contextId 为 null（归属 main），但标签需显示目标子上下文——
   // 从占位 content 的 JSON 里解析目标 contextId 挂到 chatMsg.contextId
@@ -41,9 +47,9 @@ function toChatMessage(msg: import('./services/store/database').MessageRecord): 
   if (msg.extraData?.uiRender) {
     const ui = msg.extraData.uiRender as { component: string; props: Record<string, unknown>; children?: unknown[] }
     chatMsg.widgetNode = {
-      type: ui.component as import('@shared/types/ui').WidgetNodeType,
+      type: ui.component as WidgetNodeType,
       props: ui.props ?? {},
-      children: Array.isArray(ui.children) ? ui.children as import('@shared/types/ui').WidgetNode[] : undefined,
+      children: Array.isArray(ui.children) ? ui.children as WidgetNode[] : null,
     }
   }
   // 空内容且无 UI 的 assistant 消息不显示（零文本 tool_calls 轮 / 空 stop）
@@ -66,10 +72,10 @@ export function registerIpc(): void {
   ipcMain.handle('app:quit', () => app.quit())
 
   // 日志查询
-  ipcMain.handle('logs:query', async (_ev, q?: import('../shared/types').LogQuery) => {
+  ipcMain.handle('logs:query', async (_ev, q?: LogQuery) => {
     return logService.query(q)
   })
-  ipcMain.handle('logs:queryAll', async (_ev, q?: import('../shared/types').LogQuery) => {
+  ipcMain.handle('logs:queryAll', async (_ev, q?: LogQuery) => {
     return await logService.queryAll(q)
   })
   ipcMain.handle('logs:getChain', async (_ev, runId: string, maxDepth?: number) => {
@@ -91,9 +97,6 @@ export function registerIpc(): void {
   ipcMain.handle('usage:getHourly', async () => {
     return getHourlyUsage()
   })
-  ipcMain.handle('usage:getToolSplit', async () => {
-    return getToolSplit()
-  })
   ipcMain.handle('usage:getContextDaily', async (_ev, days?: number) => {
     const { getContextWeekly } = await import('./services/usage-totals')
     return getContextWeekly()
@@ -104,7 +107,7 @@ export function registerIpc(): void {
   })
 
   // 插件——导入 zip（文件选择器）
-  ipcMain.handle('plugins:importZip', async (): Promise<import('./modules/plugin').ImportResult> => {
+  ipcMain.handle('plugins:importZip', async (): Promise<PluginImportResult> => {
     const w = getMainWindow()
     if (!w) return { ok: false, error: '窗口不可用' }
     const result = await dialog.showOpenDialog(w, {
@@ -118,12 +121,12 @@ export function registerIpc(): void {
   })
 
   // 插件——已装清单
-  ipcMain.handle('plugins:list', () => {
+  ipcMain.handle('plugins:list', (): PluginInfo[] => {
     return pluginLoader.listInstalled()
   })
 
   // 插件——卸载（注销上下文/工具 + 删文件）
-  ipcMain.handle('plugins:uninstall', (_ev, entryName: string): { ok: boolean; error?: string } => {
+  ipcMain.handle('plugins:uninstall', (_ev, entryName: string): PluginUninstallResult => {
     const base = path.basename(entryName)
     if (!base.endsWith('.js') || base !== entryName) return { ok: false, error: '非法的插件入口名' }
     return pluginLoader.uninstallPlugin(entryName)
@@ -133,10 +136,14 @@ export function registerIpc(): void {
   ipcMain.handle('store:config:get', async () => {
     return await globalConfigStore.get()
   })
-  ipcMain.handle('store:config:set', async (_ev, config: Partial<import('../shared/types').GlobalSettings>) => {
+  ipcMain.handle('store:config:set', async (_ev, config: Partial<GlobalSettings>) => {
     const next = await globalConfigStore.set(config)
-    // 配置变更后重建图执行器的共享 LLM provider
-    flowHost.setLlmProvider(new LlmProvider({ apiKey: next.apiKey, model: next.model, baseURL: next.baseURL }))
+    // 配置变更后重建图执行器的共享 LLM provider（null 用默认值兜底）
+    flowHost.setLlmProvider(new LlmProvider({
+      apiKey: next.apiKey ?? '',
+      model: next.model ?? DEFAULT_MODEL,
+      baseURL: next.baseURL ?? DEFAULT_BASE_URL,
+    }))
     return next
   })
 
@@ -162,14 +169,22 @@ export function registerIpc(): void {
   ipcMain.handle('chat:send', async (_ev, conversationId: string, text: string): Promise<ChatMessage> => {
     const config = await globalConfigStore.get()
     const llmConfig: LlmConfig = {
-      apiKey: config.apiKey,
-      model: config.model,
-      baseURL: config.baseURL,
+      apiKey: config.apiKey ?? '',
+      model: config.model ?? DEFAULT_MODEL,
+      baseURL: config.baseURL ?? DEFAULT_BASE_URL,
     }
     const rt = runtimeManager.getOrCreate(conversationId, llmConfig)
     const record = await rt.run(text)
     // 玩家输入记录不会是内部消息（event-status/tool-result/compact-marker），但类型上容错
-    return toChatMessage(record) ?? { id: record.id, role: 'user', content: record.content, createdAt: record.createdAt }
+    return toChatMessage(record) ?? {
+      id: record.id,
+      role: 'user',
+      content: record.content,
+      createdAt: record.createdAt,
+      contextId: record.contextId,
+      kind: null,
+      widgetNode: null,
+    }
   })
 
   // 中断流式响应

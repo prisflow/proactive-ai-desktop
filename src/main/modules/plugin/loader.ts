@@ -8,9 +8,8 @@ import { toolRegistry } from '../conversations/tool/tool-manager'
 import { pluginStorageService, conversationStore } from '../../services/store'
 import { flowHost, type FlowDefinition } from '../conversations/flow/flow-host'
 import { runtimeManager } from '../conversations/runtime-manager'
-import { memorySet, memoryGet, memorySearch, memoryRemove } from '../conversations/tool/memory-store'
-import { promptInjectionStore } from '../conversations/compaction/config'
-import type { ContextCompactionConfig } from '../conversations/context/types'
+import { getExecutionContext } from '../conversations/exec-context'
+import { headInjectionStore } from '../conversations/head-injection'
 import { getMainWindow } from '../../window'
 import type { Plugin, PluginSetupAPI } from './types'
 
@@ -280,15 +279,13 @@ export class PluginLoader {
   }
 
   /**
-   * 解析记忆读写的默认作用域：插件显式传 conversationId/contextId 优先；
-   * 缺省回退到当前活跃会话（如果有）。
+   * 读取当前执行上下文（工具/flow 执行期间由宿主注入）。
+   * 无执行上下文（如插件 setup 期间）返回 null——调用方需跳过。
    */
-  private resolveMemoryScope(opts?: { conversationId?: string; contextId?: string }): { conversationId?: string; contextId: string } {
-    if (opts?.conversationId) {
-      return { conversationId: opts.conversationId, contextId: opts?.contextId ?? 'main' }
-    }
-    const active = runtimeManager.getActiveConversationId()
-    return { conversationId: active, contextId: opts?.contextId ?? 'main' }
+  private currentScope(): { conversationId: string; contextId: string } | null {
+    const ctx = getExecutionContext()
+    if (!ctx || !ctx.conversationId) return null
+    return ctx
   }
 
   /** 创建插件安装 API，桥接到全局注册表与持久化存储。 */
@@ -318,44 +315,16 @@ export class PluginLoader {
         get: () => pluginStorageService.get(pluginId),
         set: (data) => pluginStorageService.set(pluginId, data),
       },
-      memory: {
-        set: (slot, data, opts) => {
-          const { conversationId, contextId } = this.resolveMemoryScope(opts)
-          if (!conversationId) return
-          memorySet(conversationId, contextId, slot, data)
-        },
-        get: (slot, opts) => {
-          const { conversationId, contextId } = this.resolveMemoryScope(opts)
-          if (!conversationId) return null
-          return memoryGet(conversationId, contextId, slot)?.data ?? null
-        },
-        search: (query, opts) => {
-          const { conversationId, contextId } = this.resolveMemoryScope(opts)
-          if (!conversationId) return []
-          return memorySearch(conversationId, contextId, query).map((r) => ({ slot: r.slot, data: r.data }))
-        },
-        remove: (slot, opts) => {
-          const { conversationId, contextId } = this.resolveMemoryScope(opts)
-          if (!conversationId) return false
-          return memoryRemove(conversationId, contextId, slot)
-        },
-      },
       prompts: {
-        inject: (where, text, opts) => {
-          promptInjectionStore.inject(opts?.contextId ?? 'main', where, text)
+        set: (text) => {
+          const scope = this.currentScope()
+          if (!scope) return
+          headInjectionStore.set(scope.conversationId, scope.contextId, text)
         },
-        remove: (where, text, opts) => {
-          promptInjectionStore.remove(opts?.contextId ?? 'main', where, text)
-        },
-      },
-      compaction: {
-        configure: (cfg, opts) => {
-          const contextId = opts?.contextId ?? 'main'
-          const def = contextRegistry.get(contextId)
-          if (!def) return
-          // 合并现有配置（registry 定义不可变，浅拷贝后覆盖）
-          const merged: ContextCompactionConfig = { ...def.compaction, ...cfg }
-          contextRegistry.register({ ...def, compaction: merged })
+        remove: (text) => {
+          const scope = this.currentScope()
+          if (!scope) return
+          headInjectionStore.remove(scope.conversationId, scope.contextId, text)
         },
       },
       llm: {
@@ -363,10 +332,13 @@ export class PluginLoader {
       },
       flow: {
         register: (def) => flowHost.register(def as FlowDefinition),
-        run: (name, input, opts) => {
-          const conversationId = opts?.conversationId ?? ''
+        run: (name, input) => {
+          // 会话归属从执行上下文自动获取（工具执行期间由宿主注入）
+          const scope = this.currentScope()
+          const conversationId = scope?.conversationId ?? ''
+          const contextId = scope?.contextId ?? 'main'
           // 透传所属 Runtime 的 abort 信号：用户 abort 时中断图内 LLM 调用
-          const signal = runtimeManager.get(conversationId)?.getAbortSignal()
+          const signal = conversationId ? runtimeManager.get(conversationId)?.getAbortSignal() : undefined
           // 继承公共历史：flow 节点组装时把主上下文 history 拼入 system（剧情感知 + 前缀共享）
           const history = conversationId ? runtimeManager.get(conversationId)?.getHistory() ?? [] : []
           // 收集最后一次渲染树，挂到返回的 state.__render 供插件 transformPrompt 做 UI 文本化
@@ -378,7 +350,7 @@ export class PluginLoader {
               conversationStore.addMessage(conversationId, {
                 role: 'context',
                 content: `[UI: ${payload.component}]`,
-                contextId: opts?.contextId ?? null,
+                contextId,
                 extraData: { uiRender: payload },
               })
             }
@@ -391,7 +363,7 @@ export class PluginLoader {
               props: payload.props,
               children: payload.children,
             })
-          }, { conversationId: opts?.conversationId, contextId: opts?.contextId, signal, history }).then((res) => {
+          }, { conversationId, contextId, signal, history }).then((res) => {
             // 渲染树挂到返回 state（插件 transformPrompt 读取做 UI 文本化）
             if (res.ok && renderTree && res.state && typeof res.state === 'object') {
               return { ...res, state: { ...res.state, __render: renderTree } }

@@ -5,6 +5,8 @@
  * - `error`：处理过程中发生的错误。
  * - `ui_render`：交互式 UI 组件推送。
  */
+import type { WidgetNode } from './ui'
+
 export type AgentStreamPushV1 =
   | {
       kind: 'stream'
@@ -15,8 +17,8 @@ export type AgentStreamPushV1 =
     }
   | {
       kind: 'error'
-      conversationId?: string
-      runId?: string
+      conversationId: string | null
+      runId: string | null
       message: string
     }
   | {
@@ -25,12 +27,12 @@ export type AgentStreamPushV1 =
       runId: string
       component: string
       props: Record<string, unknown>
-      children?: import('./ui').WidgetNode[]
+      children: WidgetNode[] | null
     }
   | {
       kind: 'context-switch'
       conversationId: string
       runId: string
-      /** 进入的子上下文 ID（退出时为 undefined → 回到主上下文）。 */
-      contextId?: string
+      /** 进入的子上下文 ID（null = 回到主上下文）。 */
+      contextId: string | null
     }

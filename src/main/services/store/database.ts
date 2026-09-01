@@ -1,9 +1,15 @@
 /**
  * SQLite 数据库连接单例。
  * 管理 better-sqlite3 连接生命周期，通过 Drizzle ORM 提供类型安全查询。
+ *
+ * 表结构唯一真相源：src/main/services/store/schema.ts。
+ * 变更流程：改 schema.ts → pnpm drizzle-kit generate → 提交 drizzle/ 下的新迁移文件，
+ * 运行时由 migrate() 按 __drizzle_migrations 记录增量执行。
  */
 import Database from 'better-sqlite3'
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 
@@ -16,7 +22,8 @@ export interface MessageRecord {
   conversationId: string
   role: MessageRole
   content: string
-  contextId: string | null
+  /** 产生该消息时的活跃上下文 ID（'main' = 主上下文）。 */
+  contextId: string
   extraData: Record<string, unknown> | null
   createdAt: number
 }
@@ -54,7 +61,7 @@ export class DatabaseService {
 
   /**
    * 初始化数据库连接。
-   * 打开数据库文件，启用 WAL 模式和外键约束，执行 schema 迁移。
+   * 打开数据库文件，启用 WAL 模式和外键约束，执行 Drizzle 迁移。
    * 幂等：重复调用直接返回。
    */
   init(): void {
@@ -64,9 +71,38 @@ export class DatabaseService {
     // 单例单进程下用增量记录文件支持并发读写
     this.client.pragma('journal_mode = WAL')
     this.client.pragma('foreign_keys = ON')
-    this._db = drizzle(this.client)
 
-    this.ensureSchema()
+    // 旧库（无迁移记录的库）直接删除重建——迁移体系不兼容旧版手写 schema
+    this.ensureFresh()
+
+    this._db = drizzle(this.client)
+    this.runMigrations()
+  }
+
+  /** 检测并删除旧版手写 schema 的库文件（无 __drizzle_migrations 记录即视为旧库）。 */
+  private ensureFresh(): void {
+    const db = this.client!
+    const hasMigrations = db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'`)
+      .get()
+    if (hasMigrations) return
+
+    db.close()
+    for (const suffix of ['', '-wal', '-shm']) {
+      const p = this.dbPath + suffix
+      if (fs.existsSync(p)) fs.unlinkSync(p)
+    }
+    this.client = new Database(this.dbPath)
+    this.client.pragma('journal_mode = WAL')
+    this.client.pragma('foreign_keys = ON')
+  }
+
+  /** 执行 Drizzle 迁移：开发读项目根 drizzle/，打包后读 resources/drizzle。 */
+  private runMigrations(): void {
+    const dir = app.isPackaged
+      ? path.join(process.resourcesPath, 'drizzle')
+      : path.join(app.getAppPath(), 'drizzle')
+    migrate(this._db!, { migrationsFolder: dir })
   }
 
   /** 关闭数据库连接。应用退出时调用。 */
@@ -75,107 +111,6 @@ export class DatabaseService {
     this.client.close()
     this.client = null
     this._db = null
-  }
-
-  /**
-   * 幂等建表（每次启动执行）。
-   * 应用尚未发行任何版本、无存量数据需要升级，因此不需要版本迁移体系。
-   * 将来 schema 演进时，直接在此追加 CREATE / ALTER 语句即可。
-   */
-  private ensureSchema(): void {
-    const db = this.client!
-
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS config (
-        key   TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS conversations (
-        id          TEXT PRIMARY KEY,
-        title       TEXT NOT NULL DEFAULT '',
-        is_archived INTEGER NOT NULL DEFAULT 0,
-        archived_at TEXT,
-        created_at  TEXT NOT NULL,
-        updated_at  TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS messages (
-        id              TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-        role            TEXT NOT NULL CHECK(role IN ('user','context')),
-        content         TEXT NOT NULL,
-        context_id      TEXT,
-        extra_data      TEXT,
-        created_at      TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_messages_conversation
-        ON messages(conversation_id, created_at);
-
-      CREATE TABLE IF NOT EXISTS plugin_data (
-        plugin_id TEXT PRIMARY KEY,
-        data      TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS usage_totals (
-        id                TEXT PRIMARY KEY,
-        prompt_tokens     INTEGER NOT NULL DEFAULT 0,
-        completion_tokens INTEGER NOT NULL DEFAULT 0,
-        cached_tokens     INTEGER NOT NULL DEFAULT 0,
-        updated_at        TEXT NOT NULL
-      );
-      INSERT OR IGNORE INTO usage_totals (id, prompt_tokens, completion_tokens, cached_tokens, updated_at)
-        VALUES ('total', 0, 0, 0, datetime('now'));
-
-      CREATE TABLE IF NOT EXISTS usage_daily (
-        day               TEXT PRIMARY KEY,
-        prompt_tokens     INTEGER NOT NULL DEFAULT 0,
-        completion_tokens INTEGER NOT NULL DEFAULT 0,
-        cached_tokens     INTEGER NOT NULL DEFAULT 0,
-        updated_at        TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS usage_hourly (
-        hour              TEXT PRIMARY KEY,
-        prompt_tokens     INTEGER NOT NULL DEFAULT 0,
-        completion_tokens INTEGER NOT NULL DEFAULT 0,
-        cached_tokens     INTEGER NOT NULL DEFAULT 0,
-        tool_calls        INTEGER NOT NULL DEFAULT 0,
-        text_calls        INTEGER NOT NULL DEFAULT 0,
-        updated_at        TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS usage_context_daily (
-        day               TEXT NOT NULL,
-        context_id        TEXT NOT NULL,
-        calls             INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (day, context_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS host_memory (
-        id                TEXT PRIMARY KEY,
-        conversation_id   TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-        context_id        TEXT NOT NULL,
-        slot              TEXT NOT NULL,
-        data              TEXT NOT NULL,
-        type              TEXT NOT NULL DEFAULT 'note',
-        importance        TEXT NOT NULL DEFAULT 'normal',
-        created_at        TEXT NOT NULL,
-        updated_at        TEXT NOT NULL,
-        UNIQUE(conversation_id, context_id, slot)
-      );
-      CREATE INDEX IF NOT EXISTS idx_host_memory_cid_ctx
-        ON host_memory(conversation_id, context_id);
-      CREATE INDEX IF NOT EXISTS idx_host_memory_slot
-        ON host_memory(conversation_id, context_id, slot);
-    `)
-
-    // 旧库兜底：为已存在的 conversations 表补 archived_at 列（幂等，列已存在则忽略）
-    const cols = db.prepare(`PRAGMA table_info(conversations)`).all() as Array<{ name: string }>
-    if (!cols.some((c) => c.name === 'archived_at')) {
-      db.exec(`ALTER TABLE conversations ADD COLUMN archived_at TEXT`)
-    }
   }
 }
 
