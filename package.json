@@ -13,7 +13,7 @@
     "dist": "electron-vite build && electron-builder"
   },
   "build": {
-    "appId": "com.proactiveai.desktop",
+    "appId": "com.prisflow.proactiveai",
     "productName": "ProactiveAI",
     "directories": {
       "output": "release"
