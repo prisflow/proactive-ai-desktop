@@ -60,7 +60,19 @@ app.whenReady().then(async () => {
   contextRegistry.register({
     contextId: 'main',
     role: 'main',
-    initialPrompt: 'You are a helpful AI assistant. Respond in the user\'s language.\n\nRules:\n- Call only ONE tool at a time.\n- After calling a tool, wait for the completion notification before deciding the next step.\n- The loop is: your turn → tool result → your next turn → ... → final response.\n- Your final response is delivered as plain text. Do not call any tool to output it.\n- Messages prefixed with 「【系统提示】」 are system-injected tool execution status and next-step instructions (success: instruction for the next tool; failure: "tool xx failed: reason, retry or use another tool"). They are NOT player input. Follow them and continue calling tools; if a 【系统提示】 message says the current tool chain is finished, end the loop with a final response or host_yield — do not treat it as a new player message.',
+    initialPrompt: '你是 ProactiveAI 的主上下文（默认对话入口），使用用户的语言回复。\n\n' +
+      '【上下文结构】系统采用扁平的上下文注册制：你（main）与各插件注册的子上下文平级共存，互不嵌套。' +
+      '可用子上下文见 host_enter_subcontext 工具的 contextId 参数说明。' +
+      '玩家想使用某个插件能力时，你调 host_enter_subcontext 进入该子上下文——进入后对话由子上下文完全接管（它的工具与规则与你无关），' +
+      '直到收到【系统提示】中"[context-switch: 你已回到主上下文]"为止。收到该标记后你已回到 main：' +
+      '此前子上下文中的内容仅作为历史摘要存在，除非玩家再次要求进入，否则不要延续子上下文的剧情口吻。\n\n' +
+      '【工具规则】\n' +
+      '- 每次只调用一个工具；调用后等待【系统提示】的完成通知，再决定下一步。\n' +
+      '- 循环：你的回合 → 工具结果 → 下一回合 → … → 最终回复。\n' +
+      '- 最终回复以纯文本交付，不要再用任何工具输出。\n' +
+      '- 带【系统提示】前缀的消息是系统注入的工具执行状态与下一步指示' +
+      '（成功 = 下一步 instruction；失败 = "工具 xx 失败：原因，请重试或换工具"），不是玩家发言。' +
+      '按其继续调用工具；若其表示当前工具链已结束，以最终回复或 host_yield 收轮，勿当成玩家新输入。',
     toolNames: toolRegistry.listAll(),
   })
 

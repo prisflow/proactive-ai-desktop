@@ -16,19 +16,20 @@ import { resolveCompaction } from './compaction/config'
 import { headInjectionStore } from './head-injection'
 import { contextRegistry } from './context/context-manager'
 
-/** 读慢变稳定层（context 配置的 prefixSlots 记忆 + 会话级头部注入），拼为稳定前缀文本。 */
+/** 读慢变稳定层（会话级头部注入 + context 配置的 prefixSlots 记忆），拼为稳定前缀文本。
+ * 顺序：世界观（注入）在前——背景设定；叙事史（记忆）在后——历史进展。 */
 export function loadStablePrefix(conversationId: string, contextId: string): string {
   const cfg = resolveCompaction(contextRegistry.get(contextId)?.compaction)
   const parts: string[] = []
-  // per-context prefixSlots：默认 ['summary']，cultivation 配 ['game_lore']
+  // 插件头部注入（prompts.set，固定/慢变文本 → 缓存恒命中）在前：底层世界观
+  parts.push(...headInjectionStore.get(conversationId, contextId))
+  // per-context prefixSlots：默认 ['summary']，cultivation 配 ['game_lore']——叙事史在后
   for (const slot of cfg.prefixSlots) {
     const row = memoryGet(conversationId, contextId, slot)
     if (row?.data) {
       parts.push(row.data)
     }
   }
-  // 插件头部注入（prompts.set，固定/慢变文本 → 缓存恒命中）
-  parts.push(...headInjectionStore.get(conversationId, contextId))
   return parts.join('\n\n')
 }
 

@@ -109,8 +109,8 @@ export function createBuiltinTools(): ToolDefinition[] {
         return textPrompt('host_memory_set', `[记忆已写入] ${d?.slot ?? ''}`)
       },
       run: (input, meta) => {
-        const conversationId = meta.conversationId || ''
-        const contextId = meta.contextId || 'main'
+        const conversationId = meta.conversationId
+        const contextId = meta.contextId
         if (!conversationId) return { ok: false, error: 'conversationId 缺失' } as ToolResult
         const slot = String((input as Record<string, unknown>).slot || '').trim()
         const data = String((input as Record<string, unknown>).data || '').trim()
@@ -140,8 +140,8 @@ export function createBuiltinTools(): ToolDefinition[] {
         return textPrompt('host_memory_get', d?.data ? `[记忆] ${d.slot}: ${d.data}` : '[记忆] 未找到')
       },
       run: (input, meta) => {
-        const conversationId = meta.conversationId || ''
-        const contextId = meta.contextId || 'main'
+        const conversationId = meta.conversationId
+        const contextId = meta.contextId
         const slot = String((input as Record<string, unknown>).slot || '').trim()
         try {
           const row = memoryGet(conversationId, contextId, slot)
@@ -166,8 +166,8 @@ export function createBuiltinTools(): ToolDefinition[] {
         return textPrompt('host_memory_search', `[记忆] 共${d.items.length}条：` + d.items.map((i) => `${i.slot}: ${String(i.data).slice(0, 80)}`).join(' | '))
       },
       run: (input, meta) => {
-        const conversationId = meta.conversationId || ''
-        const contextId = meta.contextId || 'main'
+        const conversationId = meta.conversationId
+        const contextId = meta.contextId
         const query = typeof (input as Record<string, unknown>).query === 'string' ? String((input as Record<string, unknown>).query).trim() : ''
         try {
           const rows = memorySearch(conversationId, contextId, query)
@@ -189,8 +189,8 @@ export function createBuiltinTools(): ToolDefinition[] {
         return textPrompt('host_memory_remove', `[记忆已删除] ${(result.result as { slot?: string })?.slot ?? ''}`)
       },
       run: (input, meta) => {
-        const conversationId = meta.conversationId || ''
-        const contextId = meta.contextId || 'main'
+        const conversationId = meta.conversationId
+        const contextId = meta.contextId
         const slot = String((input as Record<string, unknown>).slot || '').trim()
         try {
           const ok = memoryRemove(conversationId, contextId, slot)

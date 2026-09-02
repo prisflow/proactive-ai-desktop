@@ -46,7 +46,7 @@ export interface LlmNode {
   input: (ctx: FlowCtx) => string
   /** 结构化输出 schema（JSON Schema）；缺省时 LLM 输出纯文本。 */
   schema?: Record<string, unknown>
-  /** 结果存入 ctx.data 的键（缺省为节点 name）。 */
+  /** 结果存入 ctx.data 的键（缺省为 system 前 16 字符，无稳定语义，建议显式指定）。 */
   assign?: string
   /** 校验失败最大重试次数（默认 2）。 */
   maxTries?: number

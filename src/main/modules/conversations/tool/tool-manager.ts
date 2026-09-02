@@ -94,10 +94,10 @@ export class ToolRegistry {
     })
 
     try {
-      // 注入执行上下文：插件 API（memory/flow）从 ALS 自动读取会话归属
+      // 注入执行上下文：插件 API（prompts/flow）从 ALS 自动读取会话归属
       const result = await Promise.resolve(
         withExecutionContext(
-          { conversationId: meta.conversationId ?? '', contextId: meta.contextId ?? 'main' },
+          { conversationId: meta.conversationId, contextId: meta.contextId },
           () => def.run(input as Record<string, unknown>, meta),
         ),
       )

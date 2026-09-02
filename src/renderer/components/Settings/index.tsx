@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import { syncI18nFromConfig } from '@/i18n'
+import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE } from '@shared/constants'
+import { DEFAULT_LOCALE } from '@shared/locale'
 
 /** 分段控件：一组等宽选项，选中高亮。 */
 function Segmented<T extends string>({
@@ -113,7 +115,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     { key: 'en-US', label: t('settings.langEn') },
   ]
 
-  const fontSize = config.fontSize ?? 16
+  const fontSize = config.fontSize ?? DEFAULT_FONT_SIZE
 
   return (
     <div
@@ -149,7 +151,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             <SectionTitle icon={Globe}>{t('settings.language')}</SectionTitle>
             <Segmented
               options={locales}
-              value={config.locale}
+              value={config.locale ?? DEFAULT_LOCALE}
               onChange={(v) => {
                 updateConfig({ locale: v })
                 syncI18nFromConfig(v)
@@ -196,7 +198,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           {/* 外观 */}
           <section className="space-y-2.5">
             <SectionTitle icon={Palette}>{t('settings.appearance')}</SectionTitle>
-            <Segmented options={themes} value={config.theme} onChange={(v) => updateConfig({ theme: v })} />
+            <Segmented options={themes} value={config.theme ?? DEFAULT_THEME} onChange={(v) => updateConfig({ theme: v })} />
             <p className="text-xs text-[var(--app-muted)]">{t('settings.themeHint')}</p>
 
             <div className="flex items-center gap-3 pt-1">
@@ -232,14 +234,14 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               <div className="flex flex-col gap-2">
                 <Label className="text-[var(--app-muted)] text-sm">{t('settings.model')}</Label>
                 <Input
-                  value={config.model ?? ''}
+                  value={config.model ?? DEFAULT_MODEL}
                   onChange={(e) => updateConfig({ model: e.target.value })}
                 />
               </div>
               <div className="flex flex-col gap-2">
                 <Label className="text-[var(--app-muted)] text-sm">{t('settings.baseUrl')}</Label>
                 <Input
-                  value={config.baseURL || ''}
+                  value={config.baseURL || DEFAULT_BASE_URL}
                   onChange={(e) => updateConfig({ baseURL: e.target.value })}
                   placeholder={t('settings.baseUrlPlaceholder')}
                 />

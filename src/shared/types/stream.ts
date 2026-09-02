@@ -17,8 +17,8 @@ export type AgentStreamPushV1 =
     }
   | {
       kind: 'error'
-      conversationId: string | null
-      runId: string | null
+      conversationId: string
+      runId: string
       message: string
     }
   | {

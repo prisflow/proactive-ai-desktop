@@ -1,7 +1,7 @@
-/** 工具调用上下文，由调用方传入。 */
+/** 工具调用上下文，由调用方传入。conversationId/contextId 恒有值（工具都在会话+上下文内执行）。 */
 export interface ToolCallMeta {
-  conversationId?: string
-  contextId?: string
+  conversationId: string
+  contextId: string
   /** 触发本次工具调用的 LLM 轮次 runId，用于日志链路树（parentRunId）。 */
   parentRunId?: string
 }

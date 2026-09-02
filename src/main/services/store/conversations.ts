@@ -3,7 +3,7 @@
  * 通过 Drizzle ORM 提供类型安全查询，无需手写 Row 映射。
  */
 import { v4 as uuidv4 } from 'uuid'
-import { eq, desc, and, isNull, isNotNull } from 'drizzle-orm'
+import { eq, desc, and, isNotNull } from 'drizzle-orm'
 import type { Conversation } from '@shared/types/domain'
 import { databaseService, type MessageRecord, type MessageRole } from './database'
 import { conversationsTable, messagesTable } from './schema'
@@ -221,7 +221,6 @@ export class ConversationStore {
 
   /**
    * 获取指定对话中指定上下文的消息，按创建时间升序排列。
-   * contextId 为 null 的历史消息（旧数据）归入 'main'。
    * @param conversationId - 对话 ID
    * @param contextId - 上下文 ID
    */
@@ -231,9 +230,7 @@ export class ConversationStore {
       .from(messagesTable)
       .where(and(
         eq(messagesTable.conversationId, conversationId),
-        contextId === 'main'
-          ? isNull(messagesTable.contextId)
-          : eq(messagesTable.contextId, contextId),
+        eq(messagesTable.contextId, contextId),
       ))
       .orderBy(messagesTable.createdAt)
       .all()

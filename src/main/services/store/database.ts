@@ -72,7 +72,7 @@ export class DatabaseService {
     this.client.pragma('journal_mode = WAL')
     this.client.pragma('foreign_keys = ON')
 
-    // 旧库（无迁移记录的库）直接删除重建——迁移体系不兼容旧版手写 schema
+    // 旧库（无迁移记录的库）直接删除重建——此后所有 schema 演进走 drizzle 增量迁移，数据永久保留
     this.ensureFresh()
 
     this._db = drizzle(this.client)

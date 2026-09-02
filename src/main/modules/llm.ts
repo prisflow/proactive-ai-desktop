@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { addUsage } from '../services/usage-totals'
-import { DEFAULT_MAX_OUTPUT_TOKENS } from '@shared/constants'
+import { MODEL_SPECS, DEFAULT_OUTPUT_LIMIT } from '@shared/constants'
 
 /** LLM API 连接配置。baseURL 与 GlobalSettings 数据库约束对齐（string | null）。 */
 export interface LlmConfig {
@@ -29,11 +29,6 @@ export interface LlmMessage {
  */
 export function systemNote(text: string): LlmMessage {
   return { role: 'user', content: `【系统提示】${text}` }
-}
-
-/** 判断消息是否为系统注入（systemNote 产物）。 */
-export function isSystemNote(m: LlmMessage): boolean {
-  return m.role === 'user' && m.content.startsWith('【系统提示】')
 }
 
 /** OpenAI tools 参数中的单个工具定义。 */
@@ -84,10 +79,11 @@ export type StreamChunk =
  * @param usage OpenAI 响应的 usage 字段
  * @param kind 调用类型：'tool_calls' = 工具调用轮；'text' = 纯文本轮
  * @param contextId 产生该调用的上下文 ID（缺省归入 'main'）
+ * @returns 本次请求的输入 token 数（供调用方记录 lastPromptTokens，异常返回 0）
  */
-function trackUsage(usage: unknown, kind: 'text' | 'tool_calls', contextId?: string): void {
+function trackUsage(usage: unknown, kind: 'text' | 'tool_calls', contextId?: string): number {
   try {
-    if (!usage) return
+    if (!usage) return 0
     const u = usage as {
       prompt_tokens?: number
       completion_tokens?: number
@@ -99,7 +95,15 @@ function trackUsage(usage: unknown, kind: 'text' | 'tool_calls', contextId?: str
     const completion = Number(u.completion_tokens ?? 0)
     const cached = Number(u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? u.cached_tokens ?? 0)
     if (prompt || completion) addUsage(prompt, completion, cached, kind, contextId)
-  } catch {}
+    return prompt
+  } catch {
+    return 0
+  }
+}
+
+/** 单次请求输出上限：模型规格的 output（缺省兜底）。max_tokens 超过它会被 provider 拒绝或截断。 */
+function outputCap(model: string): number {
+  return MODEL_SPECS[model]?.output ?? DEFAULT_OUTPUT_LIMIT
 }
 
 /**
@@ -107,10 +111,14 @@ function trackUsage(usage: unknown, kind: 'text' | 'tool_calls', contextId?: str
  */
 export class LlmProvider {
   private client: OpenAI
+  /** 最近一次请求的真实输入 token 数（provider usage 返回，压缩触发判据）。 */
+  lastPromptTokens = 0
 
   constructor(private config: LlmConfig) {
     this.client = new OpenAI({
-      apiKey: config.apiKey,
+      // 空 apiKey 用占位符：SDK 构造遇空串会 throw（炸掉整个启动链），
+      // 占位符让启动正常、请求时才失败（前端有"未配置 API Key"提示）
+      apiKey: config.apiKey || 'not-configured',
       // null（未配置）→ 不传，走 OpenAI SDK 默认地址
       baseURL: config.baseURL ?? undefined,
     })
@@ -126,14 +134,14 @@ export class LlmProvider {
       model: this.config.model,
       messages: messages as any,
       ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-      max_tokens: maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+      max_tokens: Math.min(maxTokens ?? outputCap(this.config.model), outputCap(this.config.model)),
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }, signal ? { signal } : {})
 
-    // 持久化 token 使用（输入/输出分开，缓存命中算命中率）
+    // 持久化 token 使用（输入/输出分开，缓存命中算命中率）+ 记录真实输入 token（压缩触发判据）
     const choice = completion.choices[0]
     const kind = (choice?.message as any)?.tool_calls?.length ? 'tool_calls' as const : 'text' as const
-    trackUsage((completion as any).usage, kind, contextId)
+    this.lastPromptTokens = trackUsage((completion as any).usage, kind, contextId)
 
     const msg = choice?.message
 
@@ -161,7 +169,7 @@ export class LlmProvider {
       model: this.config.model,
       messages: messages as any,
       ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-      max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
+      max_tokens: outputCap(this.config.model),
       stream: true,
       stream_options: { include_usage: true } as any,
     }, signal ? { signal } : {})
@@ -170,8 +178,8 @@ export class LlmProvider {
     const toolCallAccumulators = new Map<number, { id?: string; name?: string; args: string }>()
 
     for await (const chunk of stream) {
-      // 流式 usage（需 stream_options.include_usage）
-      trackUsage((chunk as any).usage, 'text')
+      // 流式 usage（需 stream_options.include_usage，通常最后一块携带）
+      this.lastPromptTokens = trackUsage((chunk as any).usage, 'text')
       const choice = chunk.choices?.[0]
       if (!choice) continue
 

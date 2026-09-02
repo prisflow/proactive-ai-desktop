@@ -53,7 +53,7 @@ function selectTail(messages: LlmMessage[], keepTokens: number): number {
 export async function compactHistory(
   conversationId: string,
   contextId: string,
-  cfg: Required<Omit<ContextCompactionConfig, 'prefixSlots'>> & { prefixSlots: string[] },
+  cfg: Required<Omit<ContextCompactionConfig, 'prefixSlots' | 'tokenBudget'>> & { prefixSlots: string[] },
   llm: LlmProvider,
   messages: LlmMessage[],
 ): Promise<CompactResult> {
@@ -85,7 +85,7 @@ export async function compactHistory(
 export function persistSummary(
   conversationId: string,
   contextId: string,
-  cfg: Required<Omit<ContextCompactionConfig, 'prefixSlots'>> & { prefixSlots: string[] },
+  cfg: Required<Omit<ContextCompactionConfig, 'prefixSlots' | 'tokenBudget'>> & { prefixSlots: string[] },
   summary: string,
 ): void {
   memorySet(conversationId, contextId, cfg.summarySlot, summary, 'summary', 'core')

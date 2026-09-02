@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Runtime —— 对话运行时。串联 tool / llm / store。
  *
  * 不创建自己的 ContextManager 或 ToolManager 实例。
@@ -9,22 +9,21 @@
  *   run(玩家输入) → agentLoop：
  *     组装（稳定前缀+历史）→ LLM → stop 结束 / tool_calls：
  *       并行/按序执行工具 → transformPrompt 唯一转换点（{success, instruction, result:{text?,ui?}}）
- *       → 落库先行（DB 真相源）→ 内存同步 → instruction 生成状态 user 文本进历史
+ *       → 内存同步 + pendingDb 收集 → 循环后统一落库（assistant 先、tool 结果后）
+ *       → instruction 生成状态 user 文本进历史
  *       → 回到循环头；host_yield 终止 → pushTurnDone 复位前端
  *
  * 文本回复不走工具：LLM 直接流式输出（finish_reason: stop），直接落库 + 推前端。
  *
  * 上下文隔离（v2）：
  *   histories: Map<contextId, LlmMessage[]> —— 各上下文独立历史（'main' 恒驻留）
- *   pending:   LlmMessage[] —— 子上下文期间消息镜像（退出时 LLM 总结注入主上下文）
  *   切换由 host_enter/exit_subcontext 工具驱动：
  *     enter：占位 tool 消息立即应答（协议闭合，OpenAI 要求 tool_calls 后紧跟 tool 应答）
- *     exit： 子上下文对话 LLM 总结成新消息注入主上下文历史
+ *     exit： 子上下文历史（含压缩兜底 + DB 持久化）LLM 总结成新消息注入主上下文历史
  */
 import { contextRegistry } from './context'
 import type { ContextDefinition } from './context'
 import { toolRegistry } from './tool'
-import type { ToolDefinition, ToolResult, ToolPromptResult } from './tool'
 import { composeContextMessages } from './chat-composer'
 import { LlmProvider, systemNote, type LlmConfig, type LlmMessage, type LlmToolDef } from '../llm'
 import { logService, uniqueRunId } from '../../services/logger'
@@ -33,38 +32,41 @@ import type { MessageRecord } from '../../services/store/database'
 import { getMainWindow } from '../../window'
 import type { AgentStreamPushV1 } from '../../../shared/types/stream'
 import { resolveCompaction } from './compaction/config'
-import { estimateRequest } from './compaction/token'
 import { compactHistory, persistSummary } from './compaction/summarizer'
+import { MODEL_SPECS, DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_LIMIT } from '@shared/constants'
+import type { RuntimeHost } from './runtime/host'
+import { SubcontextManager } from './runtime/subcontext'
+import { ToolRunner } from './runtime/tool-runner'
 
-/** 请求估算时预留给模型输出的 token（压缩触发公式：估算 > contextWindow - outputReserve）。 */
-const OUTPUT_RESERVE = 8000
 /** 单轮内工具连续失败上限：达到即终止本轮，防 LLM 死循环重试烧 token。 */
 const MAX_TOOL_FAILURES = 5
 
-/** 退出子上下文时的总结注入提示词。 */
-const CONTEXT_SUMMARY_SYSTEM =
-  '你是对话总结器。把子上下文期间的对话总结为紧凑摘要，供主上下文继续对话参考。' +
-  '保留：发生了什么、关键状态变化、玩家目标与有待继续的事项。' +
-  '只归纳事实，不输出评论；输出纯文本，200字以内。'
-
-export class Runtime {
+export class Runtime implements RuntimeHost {
   private llm: LlmProvider
+  /** 本会话使用的模型名（查 MODEL_SPECS 计算压缩阈值）。 */
+  private model: string
   /** 各上下文的独立历史。'main' 恒存在；子上下文进入时创建、退出时折叠归档。 */
-  private histories: Map<string, LlmMessage[]> = new Map()
-  /** 挂起区：子上下文期间产生的真实消息（占位应答后的后续消息），退出时总结注入。 */
-  private pending: LlmMessage[] = []
-  private activeContextId: string = 'main'
+  histories: Map<string, LlmMessage[]> = new Map()
+  activeContextId: string = 'main'
   private abortController = new AbortController()
   private unsubscribeCtx?: () => void
   private unsubscribeTools?: () => void
   /** run() 串行锁：同一 Runtime 的 agentLoop 一次只跑一个（防并发消息竞态 history）。 */
   private loopTail: Promise<void> = Promise.resolve()
+  /** 子上下文切换（Runtime 拆分子模块）。 */
+  private subcontext: SubcontextManager
+  /** 工具执行链（Runtime 拆分子模块）。 */
+  private tools: ToolRunner
 
   constructor(
-    private conversationId: string,
+    public readonly conversationId: string,
     llmConfig: LlmConfig,
   ) {
+    this.model = llmConfig.model
     this.llm = new LlmProvider(llmConfig)
+    // 拆分子模块注入（组合模式，host 接口避免循环依赖）
+    this.subcontext = new SubcontextManager(this, this.llm)
+    this.tools = new ToolRunner(this, this.subcontext)
 
     // 订阅全局注册表变更：新插件注册的上下文和工具自动可见
     this.unsubscribeCtx = contextRegistry.onChange(() => {
@@ -84,7 +86,7 @@ export class Runtime {
   }
 
   /** 当前活跃上下文的定义。 */
-  private get activeDef(): ContextDefinition | undefined {
+  get activeDef(): ContextDefinition | undefined {
     return contextRegistry.get(this.activeContextId)
   }
 
@@ -104,7 +106,7 @@ export class Runtime {
   }
 
   /** 向指定上下文历史追加消息（DB 落库由调用方负责）。 */
-  private pushHistory(contextId: string, msg: LlmMessage): void {
+  pushHistory(contextId: string, msg: LlmMessage): void {
     let h = this.histories.get(contextId)
     if (!h) {
       h = []
@@ -116,7 +118,6 @@ export class Runtime {
   /** 从 store 按 contextId 分别加载已有对话历史，重建 histories。 */
   init(): void {
     this.histories.clear()
-    // 旧数据 context_id 为 null 的消息归入 'main'
     const mainRecords = conversationStore.getMessagesByContext(this.conversationId, 'main')
     this.histories.set('main', this.rebuildHistory(mainRecords))
     // 子上下文历史（中断/未退出场景恢复）
@@ -293,7 +294,7 @@ export class Runtime {
   }
 
   /** 上下文切换信号：推给前端渲染"已进入/已回到"分隔标签（实时对话不经过 IPC 全量拉取）。 */
-  private pushContextSwitch(contextId?: string): void {
+  pushContextSwitch(contextId?: string): void {
     const w = getMainWindow()
     w?.webContents.send('chat:stream', {
       kind: 'context-switch',
@@ -313,10 +314,6 @@ export class Runtime {
       extraData: null,
     })
     this.pushHistory(this.activeContextId, { role: 'user', content: userText })
-    // 子上下文期间镜像到挂起区（退出时总结注入用）
-    if (this.isInSubContext) {
-      this.pending.push({ role: 'user', content: userText })
-    }
 
     // 首次消息自动重命名：截取前 30 字
     const conv = conversationStore.get(this.conversationId)
@@ -554,24 +551,18 @@ export class Runtime {
    */
   private async compactIfNeeded(): Promise<void> {
     const history = this.getActiveHistory()
+    if (history.length === 0) return
     const cfg = resolveCompaction(this.activeDef?.compaction)
-    // 预算 = min(contextWindow - outputReserve, tokenBudget)；contextWindow 未知时用 tokenBudget
-    const budget = cfg.tokenBudget
-    const tail = this.activeDef?.initialPrompt ?? 'You are a helpful AI assistant.'
-    const messages = composeContextMessages({
-      conversationId: this.conversationId,
-      contextId: this.activeContextId,
-      history,
-      tail,
-    })
-    const toolDefs = this.buildToolDefs()
-    const estimated = estimateRequest(messages, toolDefs)
-    if (estimated <= budget) return
+    // 触发判据：上次请求的真实输入 token（provider usage）超过阈值（window - output）。
+    // 阈值远离窗口（1M - 128K = 872K），晚一轮压缩也安全；每次请求保留完整输出空间。
+    const spec = MODEL_SPECS[this.model] ?? { window: DEFAULT_CONTEXT_WINDOW, output: DEFAULT_OUTPUT_LIMIT }
+    const threshold = spec.window - spec.output
+    if (this.llm.lastPromptTokens <= threshold) return
 
     logService.log('info', undefined, {
       runId: uniqueRunId('runtime'),
       name: 'runtime.compact',
-      message: `compacting: estimated=${estimated}, budget=${budget}, history=${history.length}`,
+      message: `compacting: lastPromptTokens=${this.llm.lastPromptTokens}, threshold=${threshold}, history=${history.length}`,
     })
 
     let summary: string
@@ -594,54 +585,13 @@ export class Runtime {
     })
   }
 
-  /** 从当前活跃上下文的 toolNames 构建 LlmToolDef[]。内置工具按上下文可见性规则过滤。 */
+  /** 从当前活跃上下文的 toolNames 构建 LlmToolDef[]（委托 ToolRunner）。 */
   private buildToolDefs(): LlmToolDef[] {
-    const hostTools: string[] = []
-    for (const name of toolRegistry.listAll()) {
-      if (!name.startsWith('host_')) continue
-      if (name === 'host_enter_subcontext' && this.isInSubContext) continue
-      if (name === 'host_exit_subcontext' && !this.isInSubContext) continue
-      hostTools.push(name)
-    }
-
-    const contextTools = this.activeDef?.toolNames ?? toolRegistry.listAll()
-    const nonHostTools = contextTools.filter((n) => !n.startsWith('host_'))
-
-    return [...new Set([...hostTools, ...nonHostTools])]
-      .map((name) => toolRegistry.get(name))
-      .filter((def): def is ToolDefinition => def !== undefined)
-      .map((def) => {
-        let parameters = def.inputSchema ?? { type: 'object', properties: {} }
-        if (def.name === 'host_enter_subcontext') {
-          parameters = {
-            type: 'object',
-            properties: {
-              contextId: {
-                type: 'string',
-                description: contextRegistry.describeSubContexts(),
-              },
-            },
-            required: ['contextId'],
-          }
-        }
-        return {
-          type: 'function' as const,
-          function: {
-            name: def.name,
-            description: def.description,
-            parameters,
-          },
-        }
-      })
+    return this.tools.buildToolDefs()
   }
 
   /**
-   * 处理单个工具调用：执行 → transformPrompt 唯一转换点 → 内存同步 → 收集待落库（由 agentLoop 统一落库）。
-   * assistant(tool_calls) 已由 agentLoop 统一内存 + 落库（一条消息含全部调用）。
-   * host_enter/exit_subcontext 同步切换 activeContextId，下一轮循环自动使用新上下文。
-   * instruction（成功/失败）生成状态 user 文本回灌，驱动下一轮循环。
-   *
-   * @param pendingDb 待落库记录收集数组（agentLoop 传入，循环后统一写 DB，保证顺序 assistant→tool）
+   * 处理单个工具调用（委托 ToolRunner）：执行 → transformPrompt → 内存同步 → 收集待落库。
    * @returns 'stop'=收轮（host_yield）；'fail'=工具失败（供 agentLoop 计数防死循环）；'ok'=成功
    */
   private async handleToolCall(
@@ -649,270 +599,6 @@ export class Runtime {
     llmRunId: string,
     pendingDb: Array<Omit<MessageRecord, 'id' | 'createdAt' | 'conversationId'>>,
   ): Promise<'stop' | 'fail' | 'ok'> {
-    const def = toolRegistry.get(tc.name)
-
-    // 参数解析防御：LLM 偶尔产出残缺 JSON，失败不中断，回喂 LLM 修正后重试
-    let args: Record<string, unknown>
-    try {
-      args = JSON.parse(tc.args)
-    } catch {
-      const msg = `[工具参数解析失败，请修正后重试] ${tc.args.slice(0, 300)}`
-      // 非静默工具：失败回灌；tool 消息带错误文本（防空 content 拒绝）
-      if (def && !def.silent) {
-        const failPrompt: ToolPromptResult = {
-          success: { toolName: tc.name, error: msg },
-          result: { text: msg },
-        }
-        this.emitToolResult(tc, failPrompt, pendingDb)
-      }
-      logService.log('warn', undefined, {
-        runId: uniqueRunId('runtime'),
-        parentRunId: llmRunId,
-        name: 'tool.args-parse-failed',
-        message: `${tc.name}: ${msg}`,
-      })
-      return 'fail'
-    }
-
-    // 执行前 schema 校验在 toolRegistry.call 内部完成，失败返回 {ok:false}
-    const result = await toolRegistry.call(tc.name, args, {
-      conversationId: this.conversationId,
-      contextId: this.activeContextId,
-      parentRunId: llmRunId,
-    })
-
-    // 上下文切换：enter/exit 成功后同步切换 activeContextId（循环自动用新上下文继续）
-    if (result.ok) {
-      if (tc.name === 'host_enter_subcontext') {
-        const data = result.result as { contextId: string; reason: string }
-        await this.enterSubcontext(tc, data.contextId, data.reason, llmRunId, pendingDb)
-        return 'ok'
-      }
-      if (tc.name === 'host_exit_subcontext') {
-        await this.exitSubcontext(tc, llmRunId, pendingDb)
-        return 'ok'
-      }
-    }
-
-    // transformPrompt 唯一转换点：产出 {success, instruction?, result:{text?,ui?}}；无 def 时兜底
-    const prompt: ToolPromptResult = def?.transformPrompt
-      ? def.transformPrompt(result)
-      : result.ok
-        ? { success: { toolName: tc.name }, result: { text: JSON.stringify(result.result) } }
-        : { success: { toolName: tc.name, error: (result as { error: string }).error } }
-
-    // 静默工具（host_yield 等）：push tool 消息保持配对 + 收集待落库（由 agentLoop 统一落库，顺序 assistant→tool），收轮信号由上层处理
-    if (def?.silent) {
-      const content = result.ok
-        ? JSON.stringify(result.result)
-        : `[错误] ${(result as { error: string }).error}`
-      this.pushHistory(this.activeContextId, { role: 'tool', tool_call_id: tc.id, content })
-      pendingDb.push({
-        role: 'context',
-        content,
-        contextId: this.activeContextId,
-        extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
-      })
-      return tc.name === 'host_yield' ? 'stop' : 'ok'
-    }
-
-    // 内存同步 + 收集待落库（不落库，由 agentLoop 统一写 DB）——同一来源（transformPrompt 产物）
-    this.emitToolResult(tc, prompt, pendingDb)
-    return prompt.success.error ? 'fail' : 'ok'
-  }
-
-  /**
-   * 进入子上下文（host_enter_subcontext 成功路径）：
-   *  1. 重置挂起区，创建子上下文历史
-   *  2. 切换 activeContextId
-   *  3. 立即以占位 tool 消息应答（协议闭合：OpenAI 要求 tool_calls 后紧跟 tool 应答，
-   *     且中间不能插入其他消息——不能"挂起"到退出时再补）
-   *  占位消息归属 main（发起 enter 的上下文）：enter 的 assistant(tool_calls) 落库在 main，
-   *  占位与之配对；子上下文历史从后续消息开始，不出现孤儿 tool 消息。
-   *
-   *  reason（模型调用时传入的玩家进入意图）作为子上下文历史首条 user 消息——
-   *  子上下文首轮请求 history 非空，模型知道玩家想干什么，不会因"无工具可调"直接收轮。
-   */
-  private async enterSubcontext(tc: { id: string; name: string; args: string }, contextId: string, reason: string, llmRunId: string, pendingDb: Array<Omit<MessageRecord, 'id' | 'createdAt' | 'conversationId'>>): Promise<void> {
-    // 已在该子上下文或已有子上下文活跃：单层语义，拒绝
-    if (this.isInSubContext) {
-      const msg = `已在子上下文 ${this.activeContextId} 中，需先 host_exit_subcontext 退出`
-      logService.log('warn', undefined, {
-        runId: uniqueRunId('runtime'),
-        parentRunId: llmRunId,
-        name: 'context.enter-rejected',
-        message: msg,
-      })
-      this.pushHistory(this.activeContextId, { role: 'tool', tool_call_id: tc.id, content: `[错误] ${msg}` })
-      return
-    }
-
-    this.pending = []
-    // reason 作为子上下文首条 user 消息（模型可见的进入意图）
-    this.histories.set(contextId, reason.trim() ? [{ role: 'user', content: reason.trim() }] : [])
-    this.activeContextId = contextId
-
-    logService.log('info', undefined, {
-      runId: uniqueRunId('runtime'),
-      parentRunId: llmRunId,
-      name: 'context.switch',
-      message: `active context → ${contextId}, reason: ${(reason || '(empty)').slice(0, 60)}`,
-    })
-
-    // 占位 tool 应答（协议闭合），归属 main：与 enter 的 assistant(tool_calls)（落库 main）配对；
-    // 收集待落库（agentLoop 统一落库，顺序 assistant→tool）
-    const placeholder = JSON.stringify({ entered: true, contextId })
-    this.pushHistory('main', { role: 'tool', tool_call_id: tc.id, content: placeholder })
-    pendingDb.push({
-      role: 'context',
-      content: placeholder,
-      contextId: 'main',
-      extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
-    })
-    // 实时推送切换标签（前端不经过 IPC 全量拉取）
-    this.pushContextSwitch(contextId)
-  }
-
-  /**
-   * 退出子上下文（host_exit_subcontext 成功路径）：
-   *  1. 子上下文期间对话 LLM 总结
-   *  2. 总结作为新消息注入主上下文历史（role:user，天然触发尾部裁剪兜底，协议安全）
-   *  3. 折叠子上下文历史，回到 main
-   */
-  private async exitSubcontext(tc: { id: string; name: string; args: string }, llmRunId: string, pendingDb: Array<Omit<MessageRecord, 'id' | 'createdAt' | 'conversationId'>>): Promise<void> {
-    const subCtxId = this.activeContextId
-    // 占位 tool 应答（协议闭合，与 enter 对称），归属子上下文：exit 的 assistant(tool_calls) 落库在子上下文；
-    // 收集待落库（agentLoop 统一落库，顺序 assistant→tool）
-    const placeholder = JSON.stringify({ exited: true })
-    this.pushHistory(this.activeContextId, { role: 'tool', tool_call_id: tc.id, content: placeholder })
-    pendingDb.push({
-      role: 'context',
-      content: placeholder,
-      contextId: subCtxId,
-      extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
-    })
-
-    // 子上下文期间对话总结（LLM 失败降级为最后一条 assistant 文本）
-    let summary: string
-    try {
-      summary = await this.summarizeSubcontext(this.pending)
-    } catch {
-      summary = this.pending.length
-        ? (this.pending[this.pending.length - 1].content || '[子上下文期间无新内容]')
-        : '[子上下文期间无新内容]'
-    }
-    logService.log('info', undefined, {
-      runId: uniqueRunId('runtime'),
-      parentRunId: llmRunId,
-      name: 'context.exit-summary',
-      message: `subcontext ${subCtxId} → main, summary: ${summary.slice(0, 120)}`,
-    })
-
-    // 注入主上下文历史（systemNote 包装的 user 消息：标明系统来源，非玩家发言）
-    this.pushHistory('main', systemNote('[context-switch: 你已回到主上下文]'))
-    this.pushHistory('main', systemNote(`[子上下文总结]\n${summary}`))
-    pendingDb.push({
-      role: 'context',
-      content: '[context-switch: 你已回到主上下文]',
-      contextId: 'main',
-      extraData: { kind: 'event-status', toolName: tc.name },
-    })
-    pendingDb.push({
-      role: 'context',
-      content: summary,
-      contextId: 'main',
-      extraData: { kind: 'event-status', toolName: tc.name },
-    })
-
-    // 折叠子上下文历史
-    this.histories.delete(subCtxId)
-    this.pending = []
-    this.activeContextId = 'main'
-    logService.log('info', undefined, {
-      runId: uniqueRunId('runtime'),
-      parentRunId: llmRunId,
-      name: 'context.switch',
-      message: `active context → main`,
-    })
-    // 实时推送切换标签（回到主上下文）
-    this.pushContextSwitch()
-  }
-
-  /** 把子上下文期间消息总结为紧凑摘要（供主上下文继续对话参考）。 */
-  private async summarizeSubcontext(messages: LlmMessage[]): Promise<string> {
-    const text = messages.map((m) => `[${m.role}] ${m.content || ''}`).join('\n')
-    if (!text.trim()) return '[子上下文期间无新内容]'
-    const res = await this.llm.chat([
-      { role: 'system', content: CONTEXT_SUMMARY_SYSTEM },
-      { role: 'user', content: text },
-    ])
-    if (res.kind === 'text' && res.text.trim()) return res.text.trim()
-    throw new Error('subcontext summary failed')
-  }
-
-  /**
-   * 工具结果统一出口：来源唯一 = transformPrompt 产物。
-   * 只同步内存（tool 消息 + assistant 状态）+ 收集待落库记录（由 agentLoop 工具循环后统一落库，
-   * 保证 assistant(tool_calls) 先落、tool-result/event-status 后落，且崩溃时内存数据不落库不产生孤儿）。
-   * instruction（成功）或 error（失败）生成状态文本作为下一轮循环起点；
-   * 无 instruction 且无 error 时状态文本为空（不落占位，避免污染历史）。
-   * @param pendingDb 待落库记录收集数组（由 agentLoop 传入，循环后统一写 DB）
-   */
-  private emitToolResult(
-    tc: { id: string; name: string; args: string },
-    prompt: ToolPromptResult,
-    pendingDb: Array<Omit<MessageRecord, 'id' | 'createdAt' | 'conversationId'>>,
-  ): void {
-    const s = prompt.success
-    // 状态文本：error → 失败回灌；无 error → 仅 instruction（无 instruction 则空）
-    const statusText = s.error
-      ? `工具 ${s.toolName} 执行失败：${s.error}。请重试该工具或改用其他工具。`
-      : (prompt.instruction ?? '')
-
-    const parts: string[] = []
-    if (prompt.result?.text) parts.push(prompt.result.text)
-    if (prompt.result?.ui) parts.push(prompt.result.ui)
-    // tool 消息 content 兜底：空文本（工具无可见结果）时用状态文本，防 OpenAI 空 content 拒绝
-    const toolContent = parts.join('\n') || statusText
-
-    const ctxIdForDb = this.activeContextId
-
-    // 收集待落库（不立即写 DB）：顺序 tool-result → event-status，由 agentLoop 统一在 assistant 之后落
-    if (toolContent) {
-      pendingDb.push({
-        role: 'context',
-        content: toolContent,
-        contextId: ctxIdForDb,
-        extraData: { kind: 'tool-result', toolName: s.toolName, toolCallId: tc.id },
-      })
-    }
-    // 状态文本非空才落库/入历史（无 instruction 不落占位）
-    if (statusText) {
-      pendingDb.push({
-        role: 'context',
-        content: statusText,
-        contextId: ctxIdForDb,
-        extraData: { kind: 'event-status', toolName: s.toolName },
-      })
-    }
-
-    // 内存同步（缓存）
-    this.pushHistory(this.activeContextId, {
-      role: 'tool',
-      tool_call_id: tc.id,
-      content: toolContent,
-    })
-    // instruction（或失败回灌）以 user + 【系统提示】标注落内存（systemNote 包装；
-    // 不用 assistant——thinking 模式编造 assistant 会被 API 拒绝）
-    if (statusText) {
-      this.pushHistory(this.activeContextId, systemNote(statusText))
-    }
-    // 子上下文期间镜像到挂起区（退出时总结注入用）
-    if (this.isInSubContext) {
-      this.pending.push({ role: 'tool', tool_call_id: tc.id, content: toolContent })
-      if (statusText) {
-        this.pending.push(systemNote(statusText))
-      }
-    }
+    return this.tools.handleToolCall(tc, llmRunId, pendingDb)
   }
 }

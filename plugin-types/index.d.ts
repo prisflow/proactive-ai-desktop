@@ -71,7 +71,7 @@ export interface ContextCompactionConfig {
   summarySlot?: string
   /** 摘要头部标签文本（如 【剧情史】）。 */
   summaryLabel?: string
-  /** 触发压缩的 token 预算（缺省 60000）。 */
+  /** 触发压缩的 token 预算。已弃用——触发改为 provider 真实 usage > 窗口-输出上限，不再读取该字段。 */
   tokenBudget?: number
   /** 压缩后保留的最近消息估算 token 数（缺省 8000）。 */
   keepTokens?: number
@@ -97,10 +97,10 @@ export interface ContextDefinition {
   compaction?: ContextCompactionConfig
 }
 
-/** 工具调用上下文（调用方传入）。 */
+/** 工具调用上下文（调用方传入）。conversationId/contextId 恒有值（工具都在会话+上下文内执行）。 */
 export interface ToolCallMeta {
-  conversationId?: string
-  contextId?: string
+  conversationId: string
+  contextId: string
   /** 触发本次工具调用的 LLM 轮次 runId（日志链路树）。 */
   parentRunId?: string
 }
@@ -140,11 +140,11 @@ export interface NonSilentToolDef {
 /** 工具定义 —— 注册时需满足对应的 silent/transformPrompt 约束。 */
 export type ToolDefinition = SilentToolDef | NonSilentToolDef
 
-/** LLM API 连接配置。 */
+/** LLM API 连接配置（与宿主对齐：baseURL 未配置为 null）。 */
 export interface LlmConfig {
   apiKey: string
   model: string
-  baseURL?: string
+  baseURL: string | null
 }
 
 /** LLM 消息（OpenAI Chat Completion 单条）。 */
@@ -198,6 +198,7 @@ export interface LlmNode {
   system: string
   input: (ctx: FlowCtx) => string
   schema?: Record<string, unknown>
+  /** 结果存入 ctx.data 的键（缺省为 system 前 16 字符，无稳定语义，建议显式指定）。 */
   assign?: string
   maxTries?: number
   maxTokens?: number
