@@ -9,8 +9,17 @@ import { toolRegistry } from '../tool'
 import type { ToolDefinition, ToolResult, ToolPromptResult } from '../tool'
 import { systemNote, type LlmMessage, type LlmToolDef } from '../../llm'
 import { logService, uniqueRunId } from '../../../services/logger'
+import { getMainWindow } from '../../../window'
+import type { AgentStreamPushV1 } from '../../../../shared/types/stream'
 import type { RuntimeHost, PendingDbRecord } from './host'
 import type { SubcontextManager } from './subcontext'
+
+/** host_render_ui 的产物：组件树（与 builtin-tools.ts 的 UiRenderResult 同构）。 */
+interface UiRenderResult {
+  component: string
+  props: Record<string, unknown>
+  children?: unknown[]
+}
 
 export class ToolRunner {
   constructor(private host: RuntimeHost, private subcontext: SubcontextManager) {}
@@ -112,6 +121,25 @@ export class ToolRunner {
       if (tc.name === 'host_exit_subcontext') {
         await this.subcontext.exit(tc, llmRunId, pendingDb)
         return 'ok'
+      }
+      // host_render_ui：把组件树推送前端渲染 + 收集待落库（回放），与 flow render 节点走同一条 ui_render 通道
+      if (tc.name === 'host_render_ui') {
+        const ui = result.result as UiRenderResult
+        const w = getMainWindow()
+        w?.webContents.send('chat:stream', {
+          kind: 'ui_render',
+          conversationId: this.host.conversationId,
+          runId: uniqueRunId('ui'),
+          component: ui.component,
+          props: ui.props ?? {},
+          children: (ui.children ?? null) as import('../../../../shared/types/ui').WidgetNode[] | null,
+        } satisfies AgentStreamPushV1)
+        pendingDb.push({
+          role: 'context',
+          content: `[UI: ${ui.component}]`,
+          contextId: this.host.activeContextId,
+          extraData: { uiRender: ui },
+        })
       }
     }
 
