@@ -9,7 +9,7 @@ import { databaseService } from './database'
 import { configTable } from './schema'
 
 /** GlobalSettings 中需要持久化的键集合 */
-const CONFIG_KEYS: (keyof GlobalSettings)[] = ['apiKey', 'model', 'baseURL', 'locale', 'theme', 'fontSize']
+const CONFIG_KEYS: (keyof GlobalSettings)[] = ['apiKey', 'model', 'baseURL', 'locale', 'theme', 'fontSize', 'relayUrl', 'relayCode', 'relayDeviceId']
 
 export class GlobalConfigStore {
   private cache: GlobalSettings | null = null
@@ -28,6 +28,9 @@ export class GlobalConfigStore {
       locale: null,
       theme: null,
       fontSize: null,
+      relayUrl: null,
+      relayCode: null,
+      relayDeviceId: null,
     }
     for (const row of rows) {
       if (!CONFIG_KEYS.includes(row.key as keyof GlobalSettings)) continue

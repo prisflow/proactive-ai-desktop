@@ -10,7 +10,7 @@ import { flowHost, type FlowDefinition } from '../conversations/flow/flow-host'
 import { runtimeManager } from '../conversations/runtime-manager'
 import { getExecutionContext } from '../conversations/exec-context'
 import { headInjectionStore } from '../conversations/head-injection'
-import { getMainWindow } from '../../window'
+import { transport } from '../../transport/transport'
 import type { Plugin, PluginSetupAPI } from './types'
 
 /**
@@ -354,14 +354,13 @@ export class PluginLoader {
                 extraData: { uiRender: payload },
               })
             }
-            const w = getMainWindow()
-            w?.webContents.send('chat:stream', {
+                        transport.push({
               kind: 'ui_render',
               conversationId,
               runId: uniqueRunId('ui'),
               component: payload.component,
               props: payload.props,
-              children: payload.children,
+              children: (payload.children ?? null) as import('../../../shared/types/ui').WidgetNode[] | null,
             })
           }, { conversationId, contextId, signal, history }).then((res) => {
             // 渲染树挂到返回 state（插件 transformPrompt 读取做 UI 文本化）

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Runtime —— 对话运行时。串联 tool / llm / store。
  *
  * 不创建自己的 ContextManager 或 ToolManager 实例。
@@ -29,7 +29,7 @@ import { LlmProvider, systemNote, type LlmConfig, type LlmMessage, type LlmToolD
 import { logService, uniqueRunId } from '../../services/logger'
 import { conversationStore } from '../../services/store'
 import type { MessageRecord } from '../../services/store/database'
-import { getMainWindow } from '../../window'
+import { transport } from '../../transport/transport'
 import type { AgentStreamPushV1 } from '../../../shared/types/stream'
 import { resolveCompaction } from './compaction/config'
 import { compactHistory, persistSummary } from './compaction/summarizer'
@@ -283,8 +283,7 @@ export class Runtime implements RuntimeHost {
    * 由 agentLoop 结束时触发，abort 时也会调用（幂等，双推无害）。
    */
   private pushTurnDone(): void {
-    const w = getMainWindow()
-    w?.webContents.send('chat:stream', {
+        transport.push({
       kind: 'stream',
       conversationId: this.conversationId,
       runId: uniqueRunId('stream'),
@@ -295,8 +294,7 @@ export class Runtime implements RuntimeHost {
 
   /** 上下文切换信号：推给前端渲染"已进入/已回到"分隔标签（实时对话不经过 IPC 全量拉取）。 */
   pushContextSwitch(contextId?: string): void {
-    const w = getMainWindow()
-    w?.webContents.send('chat:stream', {
+        transport.push({
       kind: 'context-switch',
       conversationId: this.conversationId,
       runId: uniqueRunId('ctx'),
@@ -314,6 +312,16 @@ export class Runtime implements RuntimeHost {
       extraData: null,
     })
     this.pushHistory(this.activeContextId, { role: 'user', content: userText })
+    // 多端同步：用户消息广播给全部推送通道（发起端按 messageId 去重，其他端实时追加）
+    transport.push({
+      kind: 'user-message',
+      conversationId: this.conversationId,
+      runId: uniqueRunId('user'),
+      messageId: record.id,
+      content: userText,
+      contextId: this.activeContextId ?? null,
+      createdAt: record.createdAt,
+    })
 
     // 首次消息自动重命名：截取前 30 字
     const conv = conversationStore.get(this.conversationId)
@@ -469,8 +477,7 @@ export class Runtime implements RuntimeHost {
       for await (const chunk of stream) {
         if (chunk.kind === 'delta') {
           fullText += chunk.delta
-          const w = getMainWindow()
-          w?.webContents.send('chat:stream', {
+                    transport.push({
             kind: 'stream',
             conversationId: this.conversationId,
             runId: streamRunId,
@@ -509,8 +516,7 @@ export class Runtime implements RuntimeHost {
         conversationId: this.conversationId,
         message: msg,
       })
-      const w = getMainWindow()
-      w?.webContents.send('chat:stream', {
+            transport.push({
         kind: 'error',
         conversationId: this.conversationId,
         runId: streamRunId,
@@ -530,8 +536,7 @@ export class Runtime implements RuntimeHost {
         })
         this.pushHistory(this.activeContextId, { role: 'assistant', content: fullText })
       }
-      const w = getMainWindow()
-      w?.webContents.send('chat:stream', {
+            transport.push({
         kind: 'stream',
         conversationId: this.conversationId,
         runId: streamRunId,

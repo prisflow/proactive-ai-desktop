@@ -106,6 +106,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstall: (entryName: string): Promise<PluginUninstallResult> =>
       ipcRenderer.invoke('plugins:uninstall', entryName),
   },
+
+  /** 公网中继（手机 anywhere 访问，走用户自建服务器）。 */
+  relay: {
+    /** 当前连接状态（off/connecting/online）。 */
+    status: (): Promise<{ state: 'off' | 'connecting' | 'online' }> =>
+      ipcRenderer.invoke('relay:status'),
+    /** 当前手机访问链接（在线时返回，回环地址自动换局域网 IP；否则 null）。 */
+    link: (): Promise<{ link: string | null }> =>
+      ipcRenderer.invoke('relay:link'),
+    /** 启用中继（url + 配对码），返回 deviceId。 */
+    connect: (url: string, code: string): Promise<{ ok: boolean; error?: string; deviceId?: string }> =>
+      ipcRenderer.invoke('relay:connect', url, code),
+    /** 停用中继。 */
+    disconnect: (): Promise<{ ok: boolean; deviceId?: string }> =>
+      ipcRenderer.invoke('relay:disconnect'),
+  },
 })
 
 export type ElectronAPI = typeof window.electronAPI

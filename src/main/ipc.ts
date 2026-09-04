@@ -9,6 +9,8 @@ import type { LogQuery } from '@shared/types/log'
 import type { WidgetNode, WidgetNodeType } from '@shared/types/ui'
 import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
 import { runtimeManager } from './modules/conversations/runtime-manager'
+import { sendMessage } from './modules/conversations/send-message'
+import { toChatMessage } from './modules/conversations/to-chat-message'
 import { LlmProvider, type LlmConfig } from './modules/llm'
 import { flowHost } from './modules/conversations/flow/flow-host'
 import { importPluginFromZip, pluginLoader } from './modules/plugin'
@@ -21,41 +23,6 @@ import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '@shared/constants'
  * 例外：host_enter/exit_subcontext 的 tool-result（占位应答）放行——它是上下文切换点的
  * 唯一可见载体，前端据此渲染"已进入/已回到"分隔标签（切换时机 = 标签时机）。
  * 空内容且无 widgetNode 的 context（如零文本的 assistant(tool_calls) 轮）也不显示，避免空气泡。 */
-function toChatMessage(msg: MessageRecord): ChatMessage | null {
-  const kind = (msg.extraData as { kind?: string; toolName?: string } | null)?.kind
-  const toolName = (msg.extraData as { toolName?: string } | null)?.toolName
-  const isContextSwitch = kind === 'tool-result' && (toolName === 'host_enter_subcontext' || toolName === 'host_exit_subcontext')
-  if (!isContextSwitch && (kind === 'event-status' || kind === 'tool-result' || kind === 'compact-marker')) return null
-  const chatMsg: ChatMessage = {
-    id: msg.id,
-    role: msg.role === 'context' ? 'assistant' : 'user',
-    content: msg.content,
-    createdAt: msg.createdAt,
-    contextId: msg.contextId,
-    kind: isContextSwitch ? 'context-switch' : null,
-    widgetNode: null,
-  }
-  // 切换占位：enter 的占位 contextId 为 null（归属 main），但标签需显示目标子上下文——
-  // 从占位 content 的 JSON 里解析目标 contextId 挂到 chatMsg.contextId
-  if (isContextSwitch && toolName === 'host_enter_subcontext') {
-    try {
-      const parsed = JSON.parse(msg.content) as { contextId?: string }
-      if (parsed.contextId) chatMsg.contextId = parsed.contextId
-    } catch { /* 解析失败保持原样 */ }
-  }
-  // SQLite extraData.uiRender → widgetNode（含 children 递归）
-  if (msg.extraData?.uiRender) {
-    const ui = msg.extraData.uiRender as { component: string; props: Record<string, unknown>; children?: unknown[] }
-    chatMsg.widgetNode = {
-      type: ui.component as WidgetNodeType,
-      props: ui.props ?? {},
-      children: Array.isArray(ui.children) ? ui.children as WidgetNode[] : null,
-    }
-  }
-  // 空内容且无 UI 的 assistant 消息不显示（零文本 tool_calls 轮 / 空 stop）
-  if (!chatMsg.widgetNode && !String(chatMsg.content || '').trim() && chatMsg.role === 'assistant') return null
-  return chatMsg
-}
 
 export function registerIpc(): void {
   // 窗口控制
@@ -167,14 +134,7 @@ export function registerIpc(): void {
 
   // 用户输入 → Runtime（流式）
   ipcMain.handle('chat:send', async (_ev, conversationId: string, text: string): Promise<ChatMessage> => {
-    const config = await globalConfigStore.get()
-    const llmConfig: LlmConfig = {
-      apiKey: config.apiKey ?? '',
-      model: config.model ?? DEFAULT_MODEL,
-      baseURL: config.baseURL ?? DEFAULT_BASE_URL,
-    }
-    const rt = runtimeManager.getOrCreate(conversationId, llmConfig)
-    const record = await rt.run(text)
+    const record = await sendMessage(conversationId, text)
     // 玩家输入记录不会是内部消息（event-status/tool-result/compact-marker），但类型上容错
     return toChatMessage(record) ?? {
       id: record.id,

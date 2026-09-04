@@ -24,6 +24,31 @@ export const useChatStore = create<ChatStore>()(
       onChatStream((data) => {
         // switch 对 discriminated union 的窄化不依赖早退链/复合条件——每个 case 类型精确
         switch (data.kind) {
+          case 'user-message': {
+            // 多端同步的用户消息：发起端本地已显示（同 id 去重跳过），其他端实时追加
+            set((state) => {
+              const msgs = state.messages[data.conversationId] || []
+              if (msgs.some((m) => m.id === data.messageId)) return state
+              return {
+                messages: {
+                  ...state.messages,
+                  [data.conversationId]: [
+                    ...msgs,
+                    {
+                      id: data.messageId,
+                      role: 'user',
+                      content: data.content,
+                      createdAt: data.createdAt,
+                      contextId: data.contextId,
+                      kind: null,
+                      widgetNode: null,
+                    } as ChatMessage,
+                  ],
+                },
+              }
+            })
+            return
+          }
           case 'ui_render': {
             const widgetNode: WidgetNode = {
               type: data.component as WidgetNodeType,
@@ -149,16 +174,17 @@ export const useChatStore = create<ChatStore>()(
           useToastStore.getState().push(`发送失败：${e instanceof Error ? e.message : String(e)}`)
           throw e
         }
-        // 追加用户消息（本地微任务先于网络 delta，顺序：用户消息在前、回复在后）
-        set((state) => ({
-          messages: {
-            ...state.messages,
-            [conversationId]: [
-              ...(state.messages[conversationId] || []),
-              msg,
-            ],
-          },
-        }))
+        // 追加用户消息（user-message 推送可能先于 invoke 返回到达——同 id 去重防双显）
+        set((state) => {
+          const existing = state.messages[conversationId] || []
+          if (existing.some((m) => m.id === msg.id)) return state
+          return {
+            messages: {
+              ...state.messages,
+              [conversationId]: [...existing, msg],
+            },
+          }
+        })
         const { useConversationStore } = await import('./conversationStore')
         useConversationStore.getState().loadConversations()
       },

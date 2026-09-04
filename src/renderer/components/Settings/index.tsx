@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { X, PackagePlus, Settings2, Globe, Palette, Plug, Cpu } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, PackagePlus, Settings2, Globe, Palette, Plug, Cpu, Cloud } from 'lucide-react'
+import QRCode from 'qrcode'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '@/stores/configStore'
 import { useToastStore } from '@/stores/toastStore'
@@ -70,6 +71,65 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     refreshPlugins()
   }, [])
+
+  // 公网中继：状态恢复
+  const [relayState, setRelayState] = useState<'off' | 'connecting' | 'online'>('off')
+  const [relayUrlInput, setRelayUrlInput] = useState(config.relayUrl ?? '')
+  const [relayCodeInput, setRelayCodeInput] = useState(config.relayCode ?? '')
+  const [relayLink, setRelayLink] = useState<string | null>(null)
+  const relayQrRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    // 恢复连接状态；已在线时取手机访问链接（主进程生成，回环地址自动换局域网 IP）
+    window.electronAPI.relay.status().then(async (s) => {
+      setRelayState(s.state)
+      if (s.state === 'online') {
+        const { link } = await window.electronAPI.relay.link()
+        if (link) setRelayLink(link)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    // 依赖含 relayState：canvas 在 online 时才挂载，挂载后需重新生成二维码
+    if (relayLink && relayState === 'online' && relayQrRef.current) {
+      QRCode.toCanvas(relayQrRef.current, relayLink, { width: 112, margin: 1 }).catch(() => {
+        // 二维码生成失败不影响使用（链接可复制）
+      })
+    }
+  }, [relayLink, relayState])
+
+  async function handleRelayConnect() {
+    const res = await window.electronAPI.relay.connect(relayUrlInput, relayCodeInput)
+    if (!res.ok) {
+      toast.push(t('settings.relayFailed', { error: res.error ?? '未知错误' }), 'error')
+      return
+    }
+    setRelayState('connecting')
+    const poll = setInterval(async () => {
+      const s = await window.electronAPI.relay.status()
+      if (s.state === 'online') {
+        clearInterval(poll)
+        setRelayState('online')
+        const { link } = await window.electronAPI.relay.link()
+        if (link) setRelayLink(link)
+        toast.push(t('settings.relayOnline'), 'info')
+      }
+    }, 1500)
+    setTimeout(() => clearInterval(poll), 15000)
+  }
+
+  async function handleRelayDisconnect() {
+    await window.electronAPI.relay.disconnect()
+    setRelayState('off')
+    setRelayLink(null)
+  }
+
+  async function handleRelayCopy() {
+    if (!relayLink) return
+    await navigator.clipboard.writeText(relayLink)
+    toast.push(t('settings.linkCopied'), 'info')
+  }
 
   async function handleImportPlugin() {
     setImporting(true)
@@ -246,6 +306,60 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                   placeholder={t('settings.baseUrlPlaceholder')}
                 />
               </div>
+            </div>
+          </section>
+
+          {/* 公网中继 */}
+          <section className="space-y-2.5">
+            <SectionTitle icon={Cloud}>{t('settings.relayPlay')}</SectionTitle>
+            <div className="space-y-3 rounded-xl border border-[color:var(--app-border)] bg-[var(--app-subtle-section)] p-4">
+              <div className="flex flex-col gap-2">
+                <Label className="text-[var(--app-muted)] text-sm">{t('settings.relayUrl')}</Label>
+                <Input
+                  value={relayUrlInput}
+                  onChange={(e) => setRelayUrlInput(e.target.value)}
+                  placeholder="wss://play.example.com/relay"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label className="text-[var(--app-muted)] text-sm">{t('settings.relayCode')}</Label>
+                <Input
+                  value={relayCodeInput}
+                  onChange={(e) => setRelayCodeInput(e.target.value)}
+                  placeholder={t('settings.relayCodePlaceholder')}
+                  autoComplete="off"
+                />
+              </div>
+              {relayState === 'online' ? (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--app-muted)]">{t('settings.relayOnline')}</span>
+                    <Button type="button" variant="outline" size="sm" onClick={handleRelayDisconnect}>
+                      {t('settings.relayStop')}
+                    </Button>
+                  </div>
+                  {relayLink && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 rounded-lg border border-[color:var(--app-border)] px-3 py-2">
+                        <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-muted)]">{relayLink}</span>
+                        <Button type="button" variant="ghost" size="sm" onClick={handleRelayCopy}>
+                          {t('settings.linkCopy')}
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <canvas ref={relayQrRef} className="h-28 w-28 shrink-0 rounded-lg border border-[color:var(--app-border)] bg-white p-1" />
+                        <p className="text-xs leading-relaxed text-[var(--app-muted)]">{t('settings.relayQrHint')}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={handleRelayConnect} disabled={relayState === 'connecting'}>
+                  <Cloud size={15} />
+                  {relayState === 'connecting' ? t('settings.relayConnecting') : t('settings.relayStart')}
+                </Button>
+              )}
             </div>
           </section>
         </div>

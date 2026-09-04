@@ -79,6 +79,18 @@
     "uninstallPlugin": "Uninstall",
     "uninstallPluginSuccess": "Plugin \"{name}\" uninstalled",
     "uninstallPluginFailed": "Uninstall failed: {error}",
-    "noPlugins": "No plugins installed. Import a zip package to get started."
+    "noPlugins": "No plugins installed. Import a zip package to get started.",
+    "linkCopy": "Copy link",
+    "linkCopied": "Link copied",
+    "relayPlay": "Public Relay (play from anywhere)",
+    "relayUrl": "Relay server URL",
+    "relayCode": "Pairing code",
+    "relayCodePlaceholder": "Enter your pairing code",
+    "relayStart": "Connect relay",
+    "relayConnecting": "Connecting…",
+    "relayOnline": "Online — phone can connect",
+    "relayStop": "Disconnect",
+    "relayFailed": "Connect failed: {error}",
+    "relayQrHint": "Scan or open the link on your phone to continue the conversation."
   }
 }

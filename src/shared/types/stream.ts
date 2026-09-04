@@ -16,6 +16,17 @@ export type AgentStreamPushV1 =
       done: boolean
     }
   | {
+      kind: 'user-message'
+      conversationId: string
+      runId: string
+      /** 已落库的用户消息 ID（多端去重用：发起端本地已显示，跳过同 id）。 */
+      messageId: string
+      content: string
+      contextId: string | null
+      /** 落库时间戳（多端时间戳渲染用）。 */
+      createdAt: number
+    }
+  | {
       kind: 'error'
       conversationId: string
       runId: string

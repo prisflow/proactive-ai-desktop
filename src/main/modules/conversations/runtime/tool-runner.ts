@@ -9,7 +9,7 @@ import { toolRegistry } from '../tool'
 import type { ToolDefinition, ToolResult, ToolPromptResult } from '../tool'
 import { systemNote, type LlmMessage, type LlmToolDef } from '../../llm'
 import { logService, uniqueRunId } from '../../../services/logger'
-import { getMainWindow } from '../../../window'
+import { transport } from '../../../transport/transport'
 import type { AgentStreamPushV1 } from '../../../../shared/types/stream'
 import type { RuntimeHost, PendingDbRecord } from './host'
 import type { SubcontextManager } from './subcontext'
@@ -125,8 +125,7 @@ export class ToolRunner {
       // host_render_ui：把组件树推送前端渲染 + 收集待落库（回放），与 flow render 节点走同一条 ui_render 通道
       if (tc.name === 'host_render_ui') {
         const ui = result.result as UiRenderResult
-        const w = getMainWindow()
-        w?.webContents.send('chat:stream', {
+                transport.push({
           kind: 'ui_render',
           conversationId: this.host.conversationId,
           runId: uniqueRunId('ui'),

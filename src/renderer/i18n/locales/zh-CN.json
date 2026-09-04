@@ -79,6 +79,18 @@
     "uninstallPlugin": "卸载",
     "uninstallPluginSuccess": "插件「{name}」已卸载",
     "uninstallPluginFailed": "卸载失败：{error}",
-    "noPlugins": "暂无已安装插件，可从 zip 包导入。"
+    "noPlugins": "暂无已安装插件，可从 zip 包导入。",
+    "linkCopy": "复制链接",
+    "linkCopied": "链接已复制",
+    "relayPlay": "公网中继（手机 anywhere 访问）",
+    "relayUrl": "中继服务器地址",
+    "relayCode": "配对码",
+    "relayCodePlaceholder": "输入你设置的对码",
+    "relayStart": "连接中继",
+    "relayConnecting": "连接中…",
+    "relayOnline": "已在线，手机可访问",
+    "relayStop": "断开",
+    "relayFailed": "连接失败：{error}",
+    "relayQrHint": "手机扫码或打开链接即可继续当前对话。"
   }
 }

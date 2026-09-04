@@ -5,6 +5,7 @@ import { globalConfigStore, databaseService, conversationStore } from './service
 import { createWindow } from './window'
 import { registerIpc } from './ipc'
 import { createTray, destroyTray } from './tray'
+import { registerRelayIpc, restoreRelay } from './transport/relay-ipc'
 import { contextRegistry } from './modules/conversations/context/context-manager'
 import { toolRegistry } from './modules/conversations/tool/tool-manager'
 import { createBuiltinTools } from './modules/conversations/tool/builtin-tools'
@@ -83,8 +84,10 @@ app.whenReady().then(async () => {
   await pluginLoader.start(pluginsDir)
 
   registerIpc()
+  registerRelayIpc()
   createWindow()
   createTray()
+  void restoreRelay()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
