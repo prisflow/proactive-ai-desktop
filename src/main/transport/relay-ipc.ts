@@ -1,16 +1,16 @@
 /**
- * Relay 通道控制 IPC —— 设置页开关/状态用。
- * - relay:status → 当前状态（off/connecting/online）
- * - relay:connect → 启用（url + code，deviceId 自动生成并持久化）
- * - relay:disconnect → 停用
- * 应用启动时若配置已启用（relayUrl + relayCode 存在）则自动连接。
+ * Relay 通道控制 IPC —— 设置页手动连接用。
+ * - relay:status → 当前状态（off/connecting/online）+ 最近一次连接失败原因
+ * - relay:connect → 手动连接（url + code，deviceId 自动生成并持久化；url 留空用官方默认中继）
+ * - relay:disconnect → 断开
+ * 设计：连接只由用户在设置页手动触发，应用启动不做任何自动连接。
  */
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { relayClient } from './relay-client'
 import { globalConfigStore } from '../services/store'
-
+import { DEFAULT_RELAY_URL } from '../../shared/constants'
 /** 本机局域网 IPv4（第一个非回环地址；找不到则回环兜底）。 */
 function lanIp(): string {
   for (const nets of Object.values(networkInterfaces())) {
@@ -40,7 +40,7 @@ function phoneLinkFromConfig(config: { relayUrl: string | null; relayCode: strin
 
 export function registerRelayIpc(): void {
   ipcMain.handle('relay:status', () => {
-    return { state: relayClient.state }
+    return { state: relayClient.state, lastError: relayClient.lastError ?? null }
   })
 
   ipcMain.handle('relay:link', async () => {
@@ -48,10 +48,11 @@ export function registerRelayIpc(): void {
   })
 
   ipcMain.handle('relay:connect', async (_ev, url: string, code: string) => {
-    const trimmedUrl = (url ?? '').trim()
+    // 地址留空 → 使用官方默认中继
+    const trimmedUrl = (url ?? '').trim() || DEFAULT_RELAY_URL
     const trimmedCode = (code ?? '').trim()
-    if (!trimmedUrl || !trimmedCode) {
-      return { ok: false, error: 'url/code 不能为空' }
+    if (!trimmedCode) {
+      return { ok: false, error: '配对码不能为空' }
     }
     let config = await globalConfigStore.get()
     let deviceId = config.relayDeviceId
@@ -70,12 +71,4 @@ export function registerRelayIpc(): void {
     relayClient.disconnect()
     return { ok: true, deviceId: config.relayDeviceId }
   })
-}
-
-/** 应用启动时恢复中继连接（配置了则自动连）。 */
-export async function restoreRelay(): Promise<void> {
-  const config = await globalConfigStore.get()
-  if (config.relayUrl && config.relayCode && config.relayDeviceId) {
-    relayClient.connect(config.relayUrl, config.relayDeviceId, config.relayCode)
-  }
 }

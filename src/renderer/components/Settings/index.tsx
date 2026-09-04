@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import { syncI18nFromConfig } from '@/i18n'
-import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE } from '@shared/constants'
+import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE, DEFAULT_RELAY_URL } from '@shared/constants'
 import { DEFAULT_LOCALE } from '@shared/locale'
 
 /** 分段控件：一组等宽选项，选中高亮。 */
@@ -74,15 +74,21 @@ export default function Settings({ onClose }: { onClose: () => void }) {
 
   // 公网中继：状态恢复
   const [relayState, setRelayState] = useState<'off' | 'connecting' | 'online'>('off')
-  const [relayUrlInput, setRelayUrlInput] = useState(config.relayUrl ?? '')
+  // 预填：配置里的回环地址（本地测试残留）视为无效，回退官方默认地址
+  const isLoopbackRelay = (u: string | null) => /^(wss?:\/\/)(127\.0\.0\.1|localhost)/.test(u ?? '')
+  const [relayUrlInput, setRelayUrlInput] = useState(
+    config.relayUrl && !isLoopbackRelay(config.relayUrl) ? config.relayUrl : DEFAULT_RELAY_URL,
+  )
   const [relayCodeInput, setRelayCodeInput] = useState(config.relayCode ?? '')
   const [relayLink, setRelayLink] = useState<string | null>(null)
+  const [relayLastError, setRelayLastError] = useState<string | null>(null)
   const relayQrRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     // 恢复连接状态；已在线时取手机访问链接（主进程生成，回环地址自动换局域网 IP）
     window.electronAPI.relay.status().then(async (s) => {
       setRelayState(s.state)
+      setRelayLastError(s.lastError)
       if (s.state === 'online') {
         const { link } = await window.electronAPI.relay.link()
         if (link) setRelayLink(link)
@@ -106,6 +112,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
       return
     }
     setRelayState('connecting')
+    setRelayLastError(null)
     const poll = setInterval(async () => {
       const s = await window.electronAPI.relay.status()
       if (s.state === 'online') {
@@ -114,6 +121,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
         const { link } = await window.electronAPI.relay.link()
         if (link) setRelayLink(link)
         toast.push(t('settings.relayOnline'), 'info')
+      } else if (s.lastError) {
+        setRelayLastError(s.lastError)
       }
     }, 1500)
     setTimeout(() => clearInterval(poll), 15000)
@@ -318,7 +327,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                 <Input
                   value={relayUrlInput}
                   onChange={(e) => setRelayUrlInput(e.target.value)}
-                  placeholder="wss://play.example.com/relay"
+                  placeholder={DEFAULT_RELAY_URL}
                   autoComplete="off"
                 />
               </div>
@@ -355,10 +364,15 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                   )}
                 </div>
               ) : (
-                <Button type="button" variant="outline" size="sm" onClick={handleRelayConnect} disabled={relayState === 'connecting'}>
-                  <Cloud size={15} />
-                  {relayState === 'connecting' ? t('settings.relayConnecting') : t('settings.relayStart')}
-                </Button>
+                <div className="space-y-1.5">
+                  <Button type="button" variant="outline" size="sm" onClick={handleRelayConnect} disabled={relayState === 'connecting'}>
+                    <Cloud size={15} />
+                    {relayState === 'connecting' ? t('settings.relayConnecting') : t('settings.relayStart')}
+                  </Button>
+                  {relayLastError && (
+                    <p className="text-xs leading-relaxed text-red-500">连接失败：{relayLastError}（将继续自动重试）</p>
+                  )}
+                </div>
               )}
             </div>
           </section>

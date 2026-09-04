@@ -19,3 +19,6 @@ export const MODEL_SPECS: Record<string, { window: number; output: number }> = {
 export const DEFAULT_THEME = "dark" as const
 
 export const DEFAULT_FONT_SIZE = 16
+
+/** 官方公网中继地址（设置页缺省值；自建中继可改）。 */
+export const DEFAULT_RELAY_URL = "wss://remote.proactiveai.prisflow.com/relay"

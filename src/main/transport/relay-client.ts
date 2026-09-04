@@ -30,6 +30,8 @@ class RelayClient {
   private online = false
   /** 当前连接状态（供设置页显示）。 */
   state: 'off' | 'connecting' | 'online' = 'off'
+  /** 最近一次连接失败原因（供设置页展示；连接成功后清空）。 */
+  lastError: string | null = null
   private onStateChange: (() => void) | null = null
 
   get isConnected(): boolean {
@@ -77,6 +79,7 @@ class RelayClient {
     this.ws = ws
 
     ws.on('open', () => {
+      this.lastError = null
       // 注册 transport：宿主事件 → 服务器 → 手机
       this.unsubscribe = transport.subscribe((event: AgentStreamPushV1) => {
         this.send({ type: 'push', conversationId: event.conversationId, event })
@@ -98,8 +101,9 @@ class RelayClient {
       this.retryDelay = Math.min(this.retryDelay * 2, 30000)
     })
 
-    ws.on('error', () => {
-      // 错误由 close 兜底清理与重连
+    ws.on('error', (err) => {
+      // 记录失败原因（如证书校验失败/DNS 解析失败），供设置页展示；close 兜底清理与重连
+      this.lastError = err?.message || 'connection error'
       try { ws.close() } catch { /* ignore */ }
     })
   }

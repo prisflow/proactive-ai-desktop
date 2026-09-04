@@ -52,7 +52,7 @@ declare global {
         uninstall: (entryName: string) => Promise<PluginUninstallResult>
       }
       relay: {
-        status: () => Promise<{ state: 'off' | 'connecting' | 'online' }>
+        status: () => Promise<{ state: 'off' | 'connecting' | 'online'; lastError: string | null }>
         link: () => Promise<{ link: string | null }>
         connect: (url: string, code: string) => Promise<{ ok: boolean; error?: string; deviceId?: string }>
         disconnect: () => Promise<{ ok: boolean; deviceId?: string }>

@@ -109,8 +109,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /** 公网中继（手机 anywhere 访问，走用户自建服务器）。 */
   relay: {
-    /** 当前连接状态（off/connecting/online）。 */
-    status: (): Promise<{ state: 'off' | 'connecting' | 'online' }> =>
+    /** 当前连接状态（off/connecting/online）+ 最近一次连接失败原因。 */
+    status: (): Promise<{ state: 'off' | 'connecting' | 'online'; lastError: string | null }> =>
       ipcRenderer.invoke('relay:status'),
     /** 当前手机访问链接（在线时返回，回环地址自动换局域网 IP；否则 null）。 */
     link: (): Promise<{ link: string | null }> =>
