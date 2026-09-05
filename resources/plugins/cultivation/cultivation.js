@@ -27,7 +27,6 @@ function newWorld() {
       breakBonus: 0
     },
     majorEvents: [],
-    pendingBranch: null,
     originPool: [],
     talentPool: [],
     worldSetting: ""
@@ -388,7 +387,7 @@ function makeApplyNpcPool(ledger) {
       if (!name || seen.has(name)) continue;
       const realm = typeof c.realm === "string" && REALM_ORDER.includes(c.realm) ? c.realm : "\u51E1\u4EBA";
       seen.add(name);
-      const affinity = clampAffinity(Number(c.affinity));
+      const affinity = 0;
       added.push({
         name,
         gender: typeof c.gender === "string" && (c.gender === "\u7537" || c.gender === "\u5973") ? c.gender : "\u7537",
@@ -629,7 +628,7 @@ function makeApplyTurn(ledger) {
       const delta = d.delta;
       if (typeof delta.spiritStones === "number" && delta.spiritStones !== 0) {
         const v = Math.floor(delta.spiritStones);
-        if (v < 0 && w.stats.spiritStones + v < 0) return `\u7075\u77F3\u4E0D\u8DB3\uFF1A\u9700 ${-v}\uFF0C\u73B0 ${w.stats.spiritStones}`;
+        if (v < 0 && w.stats.spiritStones + v < 0) return `\u7075\u77F3\u4E0D\u8DB3\uFF1A\u6B64\u884C\u52A8\u9700\u82B1\u8D39 ${-v} \u7075\u77F3\uFF0C\u5F53\u524D\u4EC5 ${w.stats.spiritStones}\u2014\u2014\u91CD\u65B0\u8C03\u7528\u65F6\u8C03\u6574 delta \u4F7F\u7075\u77F3\u51C0\u53D8\u5316 \u2265 0\uFF0C\u6216\u6539\u5199\u4E3A\u65E0\u9700\u82B1\u8D39\u7075\u77F3\u7684\u7B49\u6548\u884C\u52A8`;
         w.stats.spiritStones += v;
       }
       if (typeof delta.cultivation === "number" && delta.cultivation !== 0) {
@@ -763,42 +762,18 @@ function makeApplyTurn(ledger) {
     const cap = cultivationCap(w);
     if (s.cultivation > cap) s.cultivation = cap;
     if (s.cultivation < 0) s.cultivation = 0;
+    if (d.dead === true) {
+      w.meta.dead = true;
+      w.meta.deathCause = "\u5267\u60C5";
+    }
     ledger.saveAll();
     return null;
   };
 }
 
 // src/rules/choice.ts
-function validateChoice(_ctx) {
-  return null;
-}
 function validateOpening(_ctx) {
   return null;
-}
-function makeStorePendingBranch(ledger) {
-  return (ctx) => {
-    const w = ctx.state._w;
-    const turn = ctx.data.turn;
-    const options = turn?.options;
-    if (!options || !Array.isArray(options)) return null;
-    w.pendingBranch = {
-      turnId: w.meta.turns,
-      options: options.map((o) => ({
-        text: String(o.text || ""),
-        risk: String(o.risk || "\u65E0"),
-        branches: (o.branches || []).map((b) => ({
-          id: String(b.id || b.title || ""),
-          title: String(b.title || ""),
-          kind: b.kind === "battle" ? "battle" : "other",
-          prob: Number(b.prob) || 0.5,
-          simpleDesc: String(b.simpleDesc || ""),
-          requiresTechnique: typeof b.requiresTechnique === "string" ? b.requiresTechnique : void 0
-        }))
-      }))
-    };
-    ledger.saveAll();
-    return null;
-  };
 }
 function makeCheckLife(ledger) {
   return (w) => {
@@ -813,70 +788,18 @@ function makeCheckLife(ledger) {
 }
 
 // src/rules/confrontation.ts
-function matchBranchInput(inputText, pending) {
-  if (!pending || !pending.options.length) return null;
-  const t = (inputText || "").trim();
-  if (!t) return null;
-  for (let oi = 0; oi < pending.options.length; oi++) {
-    const opt = pending.options[oi];
-    const hitOption = t.includes(opt.text) || t.includes(`\u9009\u9879${oi + 1}`) || t.includes(`\u9009${oi + 1}`) || t === opt.text;
-    if (!opt.branches || opt.branches.length === 0) {
-      if (hitOption) return { optionIndex: oi, branchIndex: -1 };
-      continue;
-    }
-    for (let bi = 0; bi < opt.branches.length; bi++) {
-      const b = opt.branches[bi];
-      if (t.includes(b.title) || t.includes(b.id) || t.includes(b.simpleDesc.slice(0, 8))) {
-        return { optionIndex: oi, branchIndex: bi };
-      }
-    }
-    if (hitOption) return { optionIndex: oi, branchIndex: -2 };
-  }
-  for (let oi = 0; oi < pending.options.length; oi++) {
-    const opt = pending.options[oi];
-    if (!opt.branches) continue;
-    for (let bi = 0; bi < opt.branches.length; bi++) {
-      if (t === opt.branches[bi].title) return { optionIndex: oi, branchIndex: bi };
-    }
-  }
-  return null;
-}
-function pickBranch(branches) {
-  const sum = branches.reduce((a, b) => a + Math.max(0, b.prob), 0);
-  if (sum <= 0) return Math.floor(Math.random() * branches.length);
-  let r = Math.random() * sum;
-  for (let i = 0; i < branches.length; i++) {
-    const w = Math.max(0, branches[i].prob);
-    if (r < w) return i;
-    r -= w;
-  }
-  return branches.length - 1;
-}
-function consumePendingBranch(inputText, w) {
-  const pending = w.pendingBranch;
-  if (!pending) return null;
-  const match = matchBranchInput(inputText, pending);
-  w.pendingBranch = null;
-  if (!match) return null;
-  const opt = pending.options[match.optionIndex];
-  if (!opt.branches || opt.branches.length === 0) return null;
-  const pickedIdx = pickBranch(opt.branches);
-  const picked = opt.branches[pickedIdx];
-  return { kind: picked.kind, title: picked.title, simpleDesc: picked.simpleDesc };
-}
-function makeApplyConfrontationBattle(ledger) {
+function makeApplyBattle(ledger) {
   return (ctx) => {
     const w = ctx.state._w;
-    const d = ctx.data.battleConfrontation;
-    const text = typeof d?.text === "string" && d.text ? d.text : "\u6218\u6597\u7ED3\u675F\u3002";
-    const hpFromDelta = typeof d?.delta?.hpDelta === "number" ? Math.round(d.delta.hpDelta) : void 0;
-    const hpDelta = hpFromDelta ?? 0;
+    const d = ctx.data.battle;
+    const text = typeof d?.text === "string" && d.text ? d.text : "\u6218\u6597\u9AA4\u7136\u7206\u53D1";
+    const hpDelta = typeof d?.delta?.hpDelta === "number" ? Math.round(d.delta.hpDelta) : 0;
     w.stats.hp += hpDelta;
     if (w.stats.hp > w.stats.maxHp) w.stats.hp = w.stats.maxHp;
     if (w.stats.hp <= 0 || d?.dead === true) {
       w.stats.hp = 0;
       w.meta.dead = true;
-      w.meta.deathCause = "\u6218\u6B7B";
+      w.meta.deathCause = "\u6218\u6597";
       ledger.saveAll();
       return null;
     }
@@ -920,7 +843,7 @@ function makeApplyConfrontationBattle(ledger) {
               name: String(m.name),
               grade,
               efficiency: 4,
-              techniques: techs.map((t) => ({ name: String(t.name || "\u65E0\u540D"), description: String(t.description || ""), source: "delta" })),
+              techniques: techs.map((t) => ({ name: String(t.name || "\u672F\u6CD5"), description: String(t.description || ""), source: "delta" })),
               source: "delta"
             });
           }
@@ -928,6 +851,37 @@ function makeApplyConfrontationBattle(ledger) {
       }
     }
     w.meta.turns += 1;
+    ledger.saveAll();
+    return null;
+  };
+}
+
+// src/rules/majorEvents.ts
+function makeApplyDecadalEvents(ledger) {
+  return (ctx) => {
+    const w = ctx.state._w;
+    const world = w.stats.world;
+    if (!world || typeof world.name !== "string" || !world.name.trim()) return "\u4E16\u754C\u9AA8\u67B6\u4E3A\u7A7A\uFF0C\u8BF7\u5148 create_world";
+    if (!Array.isArray(world.regions) || world.regions.length === 0) return "\u4E16\u754C\u9AA8\u67B6\u4E0D\u5168\uFF08regions \u7F3A\u5931\uFF09\uFF0C\u8BF7\u5148 create_world";
+    if (!Array.isArray(world.sects) || world.sects.length === 0) return "\u4E16\u754C\u9AA8\u67B6\u4E0D\u5168\uFF08sects \u7F3A\u5931\uFF09\uFF0C\u8BF7\u5148 create_world";
+    if (typeof world.law !== "string" || !world.law.trim()) return "\u4E16\u754C\u9AA8\u67B6\u4E0D\u5168\uFF08law \u7F3A\u5931\uFF09\uFF0C\u8BF7\u5148 create_world";
+    const d = ctx.data.decadalEvents;
+    const raw = Array.isArray(d?.majorEvents) ? d.majorEvents : [];
+    if (raw.length < 15 || raw.length > 30) return "\u5927\u4E8B\u4EF6\u6570\u91CF\u987B 15-30 \u6761";
+    const events = [];
+    for (const e of raw) {
+      const name = String(e.name || "").trim();
+      if (!name) return "\u5927\u4E8B\u4EF6 name \u4E0D\u80FD\u4E3A\u7A7A";
+      const at = Number(e.at);
+      const by = Number(e.by);
+      const type = String(e.type || "\u673A\u9047");
+      if (!["\u673A\u9047", "\u5371\u673A", "\u8F6C\u6298", "\u9AD8\u6F6E"].includes(type)) return `\u4E8B\u4EF6\u300C${name}\u300Dtype \u975E\u6CD5`;
+      const summary = String(e.summary || "").trim();
+      if (!summary) return `\u4E8B\u4EF6\u300C${name}\u300Dsummary \u4E0D\u80FD\u4E3A\u7A7A`;
+      if (w.majorEvents.some((ex) => ex.name === name) || events.some((ex) => ex.name === name)) return `\u5927\u4E8B\u4EF6\u540D\u91CD\u590D\uFF1A${name}`;
+      events.push({ name, at, by, type, summary, status: "pending" });
+    }
+    w.majorEvents.push(...events);
     ledger.saveAll();
     return null;
   };
@@ -947,10 +901,9 @@ function createRules(ledger) {
     applyTalents: makeApplyTalents(ledger),
     applyCharacter: makeApplyCharacter(ledger),
     applyTurn: makeApplyTurn(ledger),
-    applyConfrontationBattle: makeApplyConfrontationBattle(ledger),
-    validateChoice,
+    applyDecadalEvents: makeApplyDecadalEvents(ledger),
+    applyBattle: makeApplyBattle(ledger),
     validateOpening,
-    storePendingBranch: makeStorePendingBranch(ledger),
     checkLife: makeCheckLife(ledger),
     parseOriginPool,
     parseTalentPool,
@@ -962,40 +915,6 @@ function createRules(ledger) {
 // src/views.ts
 function createViews(rules) {
   const statusOf = (w) => rules.fmtStatus(w);
-  function appendQuickBar(children, w) {
-    const s = w.stats;
-    const quick = [];
-    const nonMain = s.methods.filter((m) => m.name !== s.mainMethod);
-    for (const m of nonMain.slice(0, 3)) {
-      quick.push({ component: "Button", props: { content: `\u4E3B\u4FEE${m.name}`, action: { type: "send", text: `\u4E3B\u4FEE${m.name}` } } });
-    }
-    if (s.mainMethod) {
-      for (const mo of [1, 3, 12]) {
-        quick.push({ component: "Button", props: { content: `\u95ED\u5173${mo}\u6708`, action: { type: "send", text: `\u95ED\u5173${mo}\u6708` } } });
-      }
-    }
-    if (s.cultivation >= rules.cultivationCap(w)) {
-      quick.push({ component: "Button", props: { content: "\u7A81\u7834", action: { type: "send", text: "\u7A81\u7834" } } });
-    }
-    if (quick.length) {
-      children.push({ component: "Divider", props: {} });
-      children.push({ component: "Text", props: { content: "\u5FEB\u6377\u64CD\u4F5C", size: "sm" } });
-      for (let i = 0; i < quick.length; i += 3) {
-        children.push({ component: "Row", props: { className: "gap-2 flex-wrap" }, children: quick.slice(i, i + 3) });
-      }
-    }
-    if (s.pills.length) {
-      children.push({ component: "Divider", props: {} });
-      children.push({ component: "Text", props: { content: "\u4E39\u836F", size: "sm" } });
-      for (const p of s.pills.slice(0, 4)) {
-        const pillRow = [];
-        if (p.amount >= 1) pillRow.push({ component: "Button", props: { content: `\u670D${p.name}\xD71`, action: { type: "send", text: `\u670D\u7528${p.name}\xD71` } } });
-        if (p.amount >= 3) pillRow.push({ component: "Button", props: { content: `\u670D${p.name}\xD73`, action: { type: "send", text: `\u670D\u7528${p.name}\xD73` } } });
-        if (p.amount > 1) pillRow.push({ component: "Button", props: { content: `\u670D${p.name}\u5168\u90E8(${p.amount})`, action: { type: "send", text: `\u670D\u7528${p.name}\u5168\u90E8` } } });
-        if (pillRow.length) children.push({ component: "Row", props: { className: "gap-2 flex-wrap" }, children: pillRow });
-      }
-    }
-  }
   function buildWorldScreen(ctx) {
     const w = ctx.state._w;
     const world = w.stats.world;
@@ -1039,7 +958,6 @@ function createViews(rules) {
       children.push({ component: "Divider", props: {} });
       children.push({ component: "Text", props: { content: `\u9644\u8FD1\u4E4B\u4EBA\uFF1A${nearbyFirst.slice(0, 5).map((c) => `${c.name}\uFF08${c.identity}\uFF09${affinityLabel(c.affinity)}${c.relationship !== "\u65E0" ? `\xB7${c.relationship}` : ""}`).join("\u3001")}`, size: "sm" } });
     }
-    appendQuickBar(children, w);
     children.push({ component: "Divider", props: {} });
     children.push({ component: "Text", props: { content: "\u4F60\u6B32\u4F55\u4E3A\uFF1F", size: "sm" } });
     for (let i = 0; i < opts.length; i += 2) {
@@ -1050,7 +968,7 @@ function createViews(rules) {
         children: row.map((o) => ({
           component: "Button",
           props: {
-            content: o.risk === "\u65E0" ? o.text : `${o.text}\uFF08${o.risk}\u98CE\u9669\uFF09`,
+            content: o.text,
             action: { type: "send", text: o.text }
           }
         }))
@@ -1062,8 +980,8 @@ function createViews(rules) {
     const w = ctx.state._w;
     if (w.meta.dead) return buildDeathScreen(ctx);
     const s = w.stats;
-    const battleBeat = ctx.data.battleConfrontation;
-    const beat = battleBeat?.text ? battleBeat : ctx.data.turn;
+    const battleBeat = ctx.data.battleConfrontation ?? ctx.data.battle;
+    const beat = battleBeat?.text ? battleBeat : ctx.data.breakthrough ?? ctx.data.turn;
     const opts = ctx.data.choice?.options || ctx.data.turn?.options || [];
     const children = [
       { component: "Text", props: { content: `${rules.fmtRealm(w)} \xB7 ${s.location} \xB7 ${fmtTime(w)}`, size: "lg" } },
@@ -1091,7 +1009,6 @@ function createViews(rules) {
         children.push({ component: "Text", props: { content: `\u9053\u4FA3\uFF1A${dao.map((c) => `${c.name}\uFF08${c.identity}\uFF09`).join("\u3001")}`, size: "sm" } });
       }
     }
-    appendQuickBar(children, w);
     if (opts.length) {
       children.push({ component: "Divider", props: {} });
       children.push({ component: "Text", props: { content: "\u4F60\u6B32\u4F55\u4E3A\uFF1F", size: "sm" } });
@@ -1103,7 +1020,7 @@ function createViews(rules) {
           children: row.map((o) => ({
             component: "Button",
             props: {
-              content: o.risk === "\u65E0" ? o.text : `${o.text}\uFF08${o.risk}\u98CE\u9669\uFF09`,
+              content: o.text,
               action: { type: "send", text: o.text }
             }
           }))
@@ -1155,7 +1072,6 @@ function resetWorld(ctx) {
   w.meta.turns = 0;
   w.stats = fresh.stats;
   w.majorEvents = [];
-  w.pendingBranch = null;
 }
 function resetCharacter(ctx) {
   const w = ctx.state._w;
@@ -1181,7 +1097,6 @@ function resetCharacter(ctx) {
   w.stats.talents = null;
   w.stats.pills = [];
   w.stats.breakBonus = 0;
-  w.pendingBranch = null;
 }
 
 // src/prompts.ts
@@ -1194,15 +1109,17 @@ var PROTOCOL_PROMPT = `\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u3
 \u3010reset_character\u3011\u5F53\u73A9\u5BB6\u8BF4\u201C\u6362\u4E2A\u89D2\u8272/\u7528\u6B64\u4E16\u754C\u91CD\u6765/\u91CD\u4FEE\u201D\u65F6\u8C03\uFF0C\u4FDD\u7559\u4E16\u754C\u4EC5\u91CD\u5EFA\u89D2\u8272\u3002
 \u3010generate_major_events\u3011\u5F53\u4E16\u754C\u521D\u521B\u540E\u6216\u6BCF\u8FC7\u4E94\u5341\u5E74/\u5927\u4E8B\u4EF6\u4E0D\u8DB3\u65F6\u8C03\uFF0C\u8865\u5145\u672A\u6765\u4E94\u5341\u5E74\u5927\u4E8B\u4EF6\u3002
 \u3010generate_npcs\u3011\u5F53\u4E16\u754C\u521D\u521B\u540E\u3001generate_major_events \u524D\u8C03\u7528 1 \u6B21\uFF08\u5185\u90E8\u751F\u6210 3 \u6279\u5171 30 \u4EBA\uFF1A\u51E1\u4EBA2+\u4FEE\u58EB7+\u5927\u4FEE\u58EB1\uFF0C\u81EA\u52A8\u9632\u91CD\u540D\uFF09\uFF1B\u540E\u7EED\u73A9\u5BB6\u9700\u8981\u66F4\u591A NPC \u65F6\u53EF\u518D\u8C03\u7528\u589E\u91CF\u6269\u5145\u3002
-\u3010game_turn\u3011\u5F53\u73A9\u5BB6\u8FDB\u884C\u5267\u60C5\u884C\u52A8\u3001\u5BF9\u8BDD\u3001\u63A2\u7D22\u3001\u4FEE\u70BC/\u7A81\u7834/\u5207\u4E3B\u4FEE\u3001\u670D\u7528\u4E39\u836F\u3001\u6218\u6597\u6289\u62E9\u65F6\u8C03\u3002\u73A9\u5BB6\u63D0\u4F9B\u6216\u9009\u62E9\u7ED9\u51FA\u7684\u5267\u60C5\u884C\u52A8\uFF0C\u4F60\u63A8\u6F14\u4E00\u8F6E\u5267\u60C5\u4E0E\u6570\u503C\u3002\u8BE5\u5DE5\u5177\u4E00\u8F6E\u5BF9\u8BDD\u6700\u591A\u53EA\u80FD\u8C03\u7528\u4E00\u6B21\uFF0C\u4E4B\u540E\u5C31\u7528host_yield\u7ED3\u675F\uFF0C\u7981\u6B62\u518D\u52A0\u6587\u672C\uFF08\u6CE8\u610F\u5206\u8FA8\u5355\u8F6E\u8D77\u59CB\u5E94\u7531\u7528\u6237\u53D1\u8D77\uFF0C\u800C\u975E\u5DE5\u5177\u5B8C\u6210\u4E8B\u4EF6\uFF0C\u4E0D\u8981\u88AB\u4E0A\u4E00\u8F6E\u7684game_turn\u8BEF\u5BFC\u5BFC\u81F4\u8FDE\u53D1game_turn\uFF09\u3002
+\u3010game_turn\u3011\u73A9\u5BB6\u8FDB\u884C\u65E5\u5E38\u5267\u60C5\u884C\u52A8\u3001\u5BF9\u8BDD\u3001\u63A2\u7D22\u3001\u95ED\u5173\u79EF\u7D2F\u3001\u5207\u4E3B\u4FEE\u3001\u670D\u7528\u4E39\u836F\u65F6\u8C03\u3002**\u6D41\u7A0B\u5B9A\u4E49\uFF1A\u73A9\u5BB6\u65B0\u6D88\u606F \u2192 \u8C03\u7528\u4E00\u6B21 game_turn \u2192 \u7ACB\u5373 host_yield \u2192 \u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F\u3002**host_yield \u4E4B\u540E\u51FA\u73B0\u7684\u4E00\u5207\u5185\u5BB9\uFF08\u5DE5\u5177\u7ED3\u679C\u3001\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\uFF09\u90FD\u5C5E\u4E8E\u5DF2\u7ED3\u675F\u7684\u4E0A\u4E00\u8F6E\uFF0C\u6C38\u8FDC\u4E0D\u89E6\u53D1 game_turn\u2014\u2014game_turn \u53EA\u7531\u73A9\u5BB6\u7684\u65B0\u6D88\u606F\u89E6\u53D1\uFF0C\u4E00\u8F6E\u6070\u597D\u4E00\u6B21\u3002
+\u3010game_battle\u3011\u5F53\u73A9\u5BB6\u5377\u5165\u6218\u6597\u906D\u9047\uFF08\u654C\u5BF9\u51B2\u7A81\u3001\u53AE\u6740\u3001\u56F4\u653B\u3001\u62A4\u6CD5\u4E4B\u6218\u7B49\uFF09\u65F6\u8C03\uFF0C\u72EC\u7ACB\u63A8\u6F14\u6218\u6597\u8FC7\u7A0B\u4E0E\u80DC\u8D25\u3002\u6D41\u7A0B\u540C game_turn\uFF1A\u8C03\u7528\u4E00\u6B21 \u2192 \u7ACB\u5373 host_yield \u2192 \u7B49\u5F85\u73A9\u5BB6\u3002
+\u3010game_breakthrough\u3011\u5F53\u73A9\u5BB6\u4FEE\u4E3A\u5DF2\u8FBE\u4E0A\u9650\uFF08\u4FEE\u4E3A=cap\uFF09\u4E14\u610F\u56FE\u51B2\u51FB\u74F6\u9888/\u7A81\u7834\u5883\u754C\u65F6\u8C03\uFF0C\u7CFB\u7EDF\u5224\u5B9A\u6210\u8D25\u5E76\u5199\u7A81\u7834\u53D9\u4E8B\u3002\u4FEE\u4E3A\u672A\u6EE1\u65F6\u4E0D\u8981\u8C03\uFF08\u7528 game_turn \u7EE7\u7EED\u79EF\u7D2F\uFF09\u3002\u6D41\u7A0B\u540C game_turn\uFF1A\u8C03\u7528\u4E00\u6B21 \u2192 \u7ACB\u5373 host_yield \u2192 \u7B49\u5F85\u73A9\u5BB6\u3002
 \u3010game_query\u3011\u5F53\u73A9\u5BB6\u95EE\u7EAF\u89C4\u5219/\u4E16\u754C\u89C2/\u6570\u503C/\u6863\u6848\u4E14\u4E0D\u63A8\u5267\u60C5\u65F6\u8C03\u3002\u73A9\u5BB6\u63D0\u4F9B\u5173\u952E\u8BCD\uFF0C\u4F60\u8C03\u7528\u8BE5\u5DE5\u5177\u83B7\u53D6\u7B54\u6848\u540E\u8F6C\u6362\u6210\u6587\u672C\u56DE\u7B54\uFF08\u552F\u4E00\u53EF\u7528\u6587\u672C\u56DE\u7B54\u800C\u975E\u5DE5\u5177\u8C03\u7528\u7684\u573A\u666F\uFF09\u3002
-\u3010host_yield\u3011\u4E00\u8F6E\u7684\u7ED3\u675F\u6807\u5FD7\u3002\u4E00\u8F6E\u5185\u53EF\u80FD\u4E32\u884C\u8C03\u591A\u4E2A\u5DE5\u5177\uFF08\u5982 create_world\u2192generate_npcs\u2192generate_major_events->create_character\uFF09\uFF0C\u6240\u6709\u5DE5\u5177\u90FD\u4E32\u884C\u6210\u529F\uFF08\u4E00\u6B21tool_calls\u540E\u8FD4\u56DE\u5BF9\u5E94\u7ED3\u679C\uFF09\u540E\u624D\u8C03\u4E00\u6B21 host_yield \u7ED3\u675F\u672C\u8F6E\uFF0C\u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F\u3002\u82E5\u6BCF\u8C03\u4E00\u4E2A\u5DE5\u5177\u5C31\u8C03 host_yield\uFF0C\u4F1A\u63D0\u524D\u7EC8\u6B62\u5BFC\u81F4\u540E\u7EED\u5DE5\u5177\u65E0\u6CD5\u6267\u884C\u3002
+\u3010host_yield\u3011\u4E00\u8F6E\u7684\u7ED3\u675F\u6807\u5FD7\u3002\u4E00\u8F6E\u5185\u53EF\u80FD\u4E32\u884C\u8C03\u591A\u4E2A\u5DE5\u5177\uFF08\u5982 create_world\u2192generate_npcs\u2192generate_major_events->create_character\uFF09\uFF0C\u6240\u6709\u5DE5\u5177\u90FD\u4E32\u884C\u6210\u529F\uFF08\u4E00\u6B21tool_calls\u540E\u8FD4\u56DE\u5BF9\u5E94\u7ED3\u679C\uFF09\u540E\u624D\u8C03\u4E00\u6B21 host_yield \u7ED3\u675F\u672C\u8F6E\uFF0C\u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F\u3002\u82E5\u6BCF\u8C03\u4E00\u4E2A\u5DE5\u5177\u5C31\u8C03 host_yield\uFF0C\u4F1A\u63D0\u524D\u7EC8\u6B62\u5BFC\u81F4\u540E\u7EED\u5DE5\u5177\u65E0\u6CD5\u6267\u884C\u3002\u5267\u60C5\u5DE5\u5177\uFF08game_turn/game_battle/game_breakthrough\uFF09\u4F8B\u5916\uFF1A\u5B83\u4EEC\u8C03\u7528\u4E00\u6B21\u540E\u5373 host_yield\u3002
 \u3010\u79BB\u5F00\u3011\u5F53\u73A9\u5BB6\u8BF4\u201C\u79BB\u5F00/\u9000\u51FA\u4FEE\u4ED9\u4E16\u754C\u201D\u65F6\u8C03 host_exit_subcontext\u3002
 \u3010\u6B7B\u4EA1\u3011\u6218\u6B7B/\u5BFF\u5C3D\u540E\u4EC5\u80FD create_world\u2192generate_npcs\u2192generate_major_events\u2192create_character \u6216 reset_character \u91CD\u5F00\u3002
-\u3010\u5355\u6B21\u5355\u5DE5\u5177\u3011\u6BCF\u6B21\u5FC5\u987B\u53EA\u80FD\u8C03\u7528\u4E00\u4E2A\u5DE5\u5177\uFF0C\u6BCF\u8F6E\u5BF9\u8BDD\u53EF\u4E32\u884C\u8C03\u7528\u591A\u4E2A\u5DE5\u5177\uFF0C\u6700\u540E\u4EE5host_yield\u7ED3\u5C3E\u7EC8\u6B62\uFF08\u8BE5\u5DE5\u5177\u4EE3\u8868\u672C\u8F6E\u7ED3\u675F\uFF0C\u907F\u514D\u65E0\u9650\u9012\u5F52\uFF0C\u6BCF\u8F6E\u7ED3\u675F\u65F6\u5FC5\u987B\u8C03\u7528\uFF09\uFF0C\u4F46 game_turn \u4F5C\u4E3A\u5267\u60C5\u63A8\u52A8\u5DE5\u5177\uFF0C\u5355\u8F6E\u6700\u591A\u8C03\u7528\u4E00\u6B21\uFF0C\u5FC5\u987B\u4E25\u683C\u9075\u5B88\u3002
-\u3010\u5931\u8D25\u5904\u7406\u3011\u5DE5\u5177\u5931\u8D25\u8BFB error \u91CD\u8BD5\u540C\u4E00\u5DE5\u5177\uFF0C\u6700\u591A\u4E09\u6B21\uFF0C\u5982\u9047\u5230\u65E0\u6CD5\u89E3\u51B3\u7684\u5E95\u5C42\u9519\u8BEF\u5219\u505C\u6B62\u3002
+\u3010\u5931\u8D25\u5904\u7406\u3011\u5DE5\u5177\u5931\u8D25\u8BFB error \u91CD\u8BD5\u540C\u4E00\u5DE5\u5177\uFF0C\u6700\u591A\u4E24\u6B21\u3002
+\u3010\u5267\u60C5\u5DE5\u5177\u88AB rules \u6821\u9A8C\u62D2\u7EDD\u65F6\u3011\uFF08\u5982"\u7075\u77F3\u4E0D\u8DB3""\u8282\u62CD\u987B\u7ED1\u5927\u4E8B\u4EF6""\u5B57\u6BB5\u975E\u6CD5"\uFF09\uFF1A**\u6309 error \u7ED9\u51FA\u7684\u4FEE\u6B63\u65B9\u5411\u8C03\u6574\u53D9\u4E8B\u4E0E\u53C2\u6570\u540E\uFF0C\u91CD\u65B0\u8C03\u7528\u540C\u4E00\u5DE5\u5177**\u2014\u2014\u4F8B\u5982\u7075\u77F3\u4E0D\u8DB3 \u2192 \u6539\u5199\u4E3A\u65E0\u9700\u82B1\u8D39\u7075\u77F3\u7684\u7B49\u6548\u884C\u52A8\u5E76\u8C03\u6574 delta\uFF1B\u9AD8\u5149\u672A\u7ED1\u5927\u4E8B\u4EF6 \u2192 \u53BB\u6389 eventRef \u5E76\u5C06 kind \u6539\u4E3A"\u65E5\u5E38"\u3002**\u4FEE\u6B63\u91CD\u8BD5\u6700\u591A\u4E24\u6B21\uFF0C\u4E14\u7981\u6B62\u673A\u68B0\u91CD\u53D1\u76F8\u540C\u53C2\u6570**\uFF1B\u4E24\u6B21\u540E\u4ECD\u5931\u8D25 \u2192 \u76F4\u63A5 host_yield \u7ED3\u675F\u672C\u8F6E\u3002
 
-\u3010\u5DE5\u5177\u6307\u793A\u3011\u5DE5\u5177\u6267\u884C\u5B8C\u6210\u540E\uFF0C\u7CFB\u7EDF\u4F1A\u4EE5\u4E00\u6761\u5E26\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u6807\u8BB0\u7684 user \u6D88\u606F\u63D2\u5165\u5DE5\u5177\u6267\u884C\u72B6\u6001\u4E0E\u4E0B\u4E00\u6B65\u6307\u793A\uFF1A\u6210\u529F\u65F6\u662F\u4E0B\u4E00\u6B65 instruction\uFF08\u5982"\u8BF7\u7D27\u8DDF generate_major_events"\uFF09\uFF0C\u5931\u8D25\u65F6\u662F"\u5DE5\u5177 xx \u6267\u884C\u5931\u8D25\uFF1A\u539F\u56E0\uFF0C\u8BF7\u91CD\u8BD5\u8BE5\u5DE5\u5177\u6216\u6539\u7528\u5176\u4ED6\u5DE5\u5177"\u3002**\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u6807\u8BB0\u7684\u6D88\u606F\u4E0D\u662F\u73A9\u5BB6\u53D1\u8A00\uFF0C\u800C\u662F\u7CFB\u7EDF\u66FF\u4F60\u62DF\u597D\u7684\u6536\u5C3E\u8BDD\u4E0E\u4E0B\u4E00\u6B65\u6307\u793A**\u3002\u6536\u5230\u540E\u6309\u5176\u4E2D\u5185\u5BB9\u7EE7\u7EED\u8C03\u7528\u4E0B\u4E00\u4E2A\u5DE5\u5177\uFF0C\u76F4\u81F3\u672C\u8F6E\u76EE\u6807\u5B8C\u6210\u518D host_yield \u6536\u8F6E\uFF1B\u82E5\u6307\u793A\u6D88\u606F\u53EA\u6709\u6267\u884C\u72B6\u6001\u3001\u6CA1\u6709\u5177\u4F53\u52A8\u4F5C\u6307\u5F15\uFF08\u5982"\u672C\u8F6E\u5267\u60C5\u5DF2\u63A8\u9001\u5B8C\u6BD5\uFF0C\u7981\u6B62\u518D\u6B21\u8C03\u7528 game_turn"\uFF09\uFF0C\u8BF4\u660E\u672C\u8F6E\u5DE5\u5177\u94FE\u5DF2\u7ED3\u675F\uFF0C\u7ACB\u5373 host_yield \u6536\u8F6E\uFF0C\u4E0D\u5F97\u7EE7\u7EED\u8C03\u7528\u5176\u4ED6\u5DE5\u5177\uFF0C\u66F4\u4E0D\u5F97\u628A\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u5F53\u6210\u73A9\u5BB6\u65B0\u8F93\u5165\u6765\u63A8\u8FDB\u5267\u60C5\u3002
+\u3010\u5DE5\u5177\u6307\u793A\u3011\u5DE5\u5177\u6267\u884C\u5B8C\u6210\u540E\uFF0C\u7CFB\u7EDF\u4F1A\u4EE5\u4E00\u6761\u5E26\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u6807\u8BB0\u7684 user \u6D88\u606F\u63D2\u5165\u5DE5\u5177\u6267\u884C\u72B6\u6001\u4E0E\u4E0B\u4E00\u6B65\u6307\u793A\uFF1A\u6210\u529F\u65F6\u662F\u4E0B\u4E00\u6B65 instruction\uFF08\u5982"\u8BF7\u7D27\u8DDF generate_major_events"\uFF09\uFF0C\u5931\u8D25\u65F6\u662F"\u5DE5\u5177 xx \u6267\u884C\u5931\u8D25\uFF1A\u539F\u56E0\uFF0C\u8BF7\u91CD\u8BD5\u8BE5\u5DE5\u5177\u6216\u6539\u7528\u5176\u4ED6\u5DE5\u5177"\u3002**\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u6807\u8BB0\u7684\u6D88\u606F\u4E0D\u662F\u73A9\u5BB6\u53D1\u8A00\uFF0C\u800C\u662F\u7CFB\u7EDF\u66FF\u4F60\u62DF\u597D\u7684\u6536\u5C3E\u8BDD\u4E0E\u4E0B\u4E00\u6B65\u6307\u793A**\u3002\u6536\u5230\u540E\u6309\u5176\u4E2D\u5185\u5BB9\u7EE7\u7EED\u8C03\u7528\u4E0B\u4E00\u4E2A\u5DE5\u5177\uFF0C\u76F4\u81F3\u672C\u8F6E\u76EE\u6807\u5B8C\u6210\u518D host_yield \u6536\u8F6E\uFF1B**\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u4E4B\u540E\u552F\u4E00\u9ED8\u8BA4\u5141\u8BB8\u7684\u8C03\u7528\u662F host_yield\u2014\u2014\u9664\u975E\u6307\u793A\u660E\u786E\u8981\u6C42\u8C03\u7528\u5176\u4ED6\u5DE5\u5177**\u3002\u4E0D\u5F97\u628A\u3010\u7CFB\u7EDF\u63D0\u793A\u3011\u5F53\u6210\u73A9\u5BB6\u65B0\u8F93\u5165\u6765\u63A8\u8FDB\u5267\u60C5\uFF0C\u66F4\u4E0D\u5F97\u56E0\u5B83\u7684\u51FA\u73B0\u800C\u91CD\u590D\u8C03\u7528\u5267\u60C5\u5DE5\u5177\u3002
 
 \u3010\u8BB0\u5FC6\u3011\u5BBF\u4E3B\u901A\u7528\u8BB0\u5FC6\u5C42\uFF08host_memory_*\uFF09\u6309\u4F1A\u8BDD+\u4E0A\u4E0B\u6587\u9694\u79BB\uFF0C\u957F\u671F\u4FDD\u5B58\uFF1B\u4E16\u754C\u72B6\u6001\u5361\u4E0E\u5267\u60C5\u53F2\u7531\u7CFB\u7EDF\u81EA\u52A8\u7EF4\u62A4\uFF0C\u65E0\u9700\u4F60\u5199\u5165\u3002\u4F60\u53EA\u9700\uFF1A\u73A9\u5BB6\u660E\u786E\u8981\u6C42\u8BB0\u4F4F\u7684\u7EA6\u5B9A/\u76EE\u6807 \u2192 host_memory_set \u5199\u5165\uFF08slot \u7528\u8BED\u4E49\u5316\u952E\u540D\uFF0C\u91CD\u590D\u5199\u5165\u8986\u76D6\uFF09\uFF1BNPC \u5173\u952E\u6863\u6848\u7EC6\u8282\uFF08\u8EAB\u4E16/\u79D8\u5BC6/\u53E3\u5934\u627F\u8BFA\uFF09\u2192 \u53EF\u5199 char_* slot\u3002\u56DE\u7B54\u73A9\u5BB6\u5173\u4E8E\u8FC7\u5F80\u7684\u95EE\u9898\u65F6\uFF0C\u82E5\u8FD1\u671F\u5BF9\u8BDD\u65E0\u636E\u53EF\u67E5\uFF0C\u5148\u7528 host_memory_search \u68C0\u7D22\u518D\u4F5C\u7B54\uFF0C\u52FF\u51ED\u7A7A\u7F16\u9020\u3002
 
@@ -1212,24 +1129,11 @@ var MAJOR_EVENTS_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF
 var ORIGINS_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u51FA\u8EAB\u8BBE\u8BA1\u8005\u3002\u73A9\u5BB6\u7684\u51FA\u8EAB\u5C06\u51B3\u5B9A\u8D77\u70B9\u3002\u8981\u6C42\uFF1A2-4 \u4E2A\u51FA\u8EAB\uFF0Clocation \u987B\u4E3A\u4E16\u754C\u5DF2\u6709\u5730\u57DF/\u57CE\u9547\u6216\u5B97\u95E8\u6240\u5728\u5730\uFF0C\u521D\u59CB\u7075\u77F3 0-50\uFF0C\u521D\u59CB\u597D\u611F\u4E00\u5F8B\u226430\uFF08\u76F8\u8BC6\u5185\uFF09\uFF0C\u51FA\u8EAB\u5DEE\u5F02\u5316\u3002\u51FA\u8EAB\u5F62\u6001\u591A\u6837\u5316\uFF1A\u53EF\u4EE5\u662F\u5C18\u4E16\u51E1\u4EBA\uFF08\u6563\u4FEE/\u519C\u5BB6/\u5E02\u4E95\uFF09\uFF0C\u4E5F\u53EF\u4EE5\u662F\u5B97\u95E8\u5F1F\u5B50/\u4E16\u5BB6\u5B50\u5F1F\uFF08\u53EF\u76F4\u63A5\u7EC3\u6C14\u5F00\u5C40\uFF0Crealm \u586B\u7EC3\u6C14\u5E76\u5E26\u5BF9\u5E94\u5B97\u95E8\u57FA\u7840\u529F\u6CD5\uFF09\uFF1B\u4E0D\u5FC5\u5168\u90E8\u51E1\u4EBA\u5F00\u5C40\uFF0C\u81F3\u5C11 1-2 \u4E2A\u4FEE\u4ED9\u80CC\u666F\u51FA\u8EAB\u3002realm \u4EC5\u51E1\u4EBA\u6216\u7EC3\u6C14\uFF08\u7EC3\u6C14\u4E3A\u5B97\u95E8/\u4E16\u5BB6\u51FA\u8EAB\uFF0Cstarter.methods \u7ED9\u5BF9\u5E94\u529F\u6CD5\uFF09\u3002\u4E0D\u5F3A\u5236\u5B64\u513F\u8BBE\u5B9A\uFF0C\u6B63\u5E38\u5BB6\u5EAD/\u5B97\u95E8/\u5E08\u5F92\u80CC\u666F\u7686\u53EF\u3002";
 var TALENTS_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u5929\u8D44\u8BBE\u8BA1\u8005\u3002\u4E3A\u73A9\u5BB6\u8BBE\u8BA1\u5148\u5929\u6C14\u8FD0\u8BCD\u6761\u3002\u8981\u6C42\uFF1A9 \u6761 6\u54093\u51F6\uFF0C\u4EC5\u8BCD\u6761\u65E0\u6570\u503C\uFF0C\u5409\u51F6\u5206\u660E\uFF0C\u51F6\u5409\u5DEE\u5F02\u3002";
 var CHAR_CREATE_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u4E3B\u6301\u8005\u3002\u73A9\u5BB6\u5DF2\u5B9A\u4E16\u754C\uFF0C\u4E3A\u5176\u62E9\u5B9A\u6B64\u4E16\u8EAB\u4EFD\u3002\u8981\u6C42\uFF1A\u4ECE\u51FA\u8EAB\u6C60\u90091\u51FA\u8EAB\uFF0C\u4ECE\u5929\u8D44\u6C609\u6761\u4E2D\u62BD3\u6761\uFF08\u5409\u51F6\u6743\u8861\uFF09\uFF0C\u53D6\u540D1-12\u5B57\uFF0C\u6027\u522B\u7537/\u5973\uFF0C\u6027\u683C2-8\u5B57\u72EC\u7ACB\u4E8E\u5929\u8D44\u3002\u82E5\u73A9\u5BB6\u521D\u8F93\u542B\u6307\u5411\u5219\u4F18\u5148\u91C7\u7EB3\u3002";
-var OPENING_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u8BF4\u4E66\u4EBA\u3002\u73A9\u5BB6\u521A\u5B8C\u6210\u5EFA\u89D2\uFF0C\u9700\u5199\u5F00\u573A\u7AE0\u8282\u3002\u8981\u6C42\uFF1A200-400\u5B57\u7B2C\u4E8C\u4EBA\u79F0\uFF0C\u542B\u2460\u6240\u5728\u5730\u57DF/\u5B97\u95E8\u2461\u666F\u8C61\u6C1B\u56F4\u24621-2\u53E5\u6765\u5386\u8FC7\u6E21\u2463\u547C\u5E94\u51FA\u8EAB\u6027\u683C\uFF0C\u7ED9 2-4 \u9009\u9879\u5404\u226420\u5B57\u53EF\u542B\u98CE\u9669\u3002";
-var TURN_SYSTEM = '\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u8BF4\u4E66\u4EBA\u3002\u73A9\u5BB6\u4EE5\u7B2C\u4E8C\u4EBA\u79F0\u63A8\u8FDB\u7AE0\u8282\u3002\u9002\u5F53\u5206\u6BB5\u4F18\u5316\u9605\u8BFB\u4F53\u9A8C\uFF0C\u5BF9\u8BDD\u589E\u52A0\u4EBA\u5473\uFF0C\u53D9\u4E8B\u907F\u514D\u8FC7\u5EA6\u6587\u9752\u7684AI\u5473\u3002\u63A8\u5267\u60C5\u4E14\u586B timeCost 0-\u6570\u5341\u6708\u81EA\u5B9A\uFF0C\u5927\u4E8B\u4EF6 active \u5FC5\u5E26 eventRef\uFF0C\u65E5\u5E38\u53EF\u4E0D\u5E26\uFF1B\u5F97\u5931\u8D70 delta \u6B63\u8D1F\uFF08\u9003\u79BB\u53EF\u8D1F\uFF09\uFF1BNPC \u4EC5\u5F15\u771F\u4EBA\uFF1B\u597D\u611F\u6309\u5F53\u524D\u503C\u5199\u6001\u5EA6\uFF08-20~20\uFF0C\u521D\u8BC6+1~5\uFF09\uFF1B\u4FEE\u70BC\u6309\u4E3B\u4FEE\u6548\u7387\uFF0C\u53EF\u6839\u636E\u5267\u60C5\u9002\u5F53\u63D0\u5347\uFF1B\u5267\u60C5\u4E2D\u53EF\u83B7\u53D6\u6216\u6D88\u8017\u5404\u79CD\u5404\u6837\u7684\u8D44\u6E90\uFF08\u6218\u6597\u3001\u673A\u9047\u3001\u7B49\u7B49\uFF09\uFF0C\u6570\u503C\u7531 delta \u7ED3\u7B97\uFF0C\u7531\u4F60\u81EA\u5DF1\u642D\u914D\u5267\u60C5\u5408\u7406\u51B3\u5B9A\uFF08\u6CE8\u610F\u53C2\u8003schema\u4E2D\u7684\u8BF4\u660E\u90E8\u5206\uFF09\u3002\u7981\u6B62\u4E71\u5165\u4E0D\u5728\u9644\u8FD1\u7684npc\u63BA\u548C\u5267\u60C5\uFF0C\u8981\u57FA\u4E8Enpc\u6240\u5728\u5730\u57DF\u4E0E\u4FEE\u4E3A\u7B49\u8003\u8651\u4EA4\u4E92\u5267\u60C5\u3002\u3010\u4FEE\u70BC\u901F\u5EA6\u53C2\u8003\u3011\u529F\u6CD5\u54C1\u9636\u51B3\u5B9A\u4FEE\u70BC\u901F\u5EA6\uFF08\u4FEE\u4E3A/\u6708\uFF09\uFF1A\u51E1\u54C14\u3001\u9EC4\u963624\u3001\u7384\u9636120\u3001\u5730\u9636600\u3001\u5929\u96363000\u3002\u95ED\u5173\u65F6\u95F4\u4E0E\u4FEE\u4E3A\u589E\u957F\u5FC5\u987B\u7B26\u5408\u4E3B\u4FEE\u529F\u6CD5\u54C1\u9636\u2014\u2014\u51E1\u54C1\u529F\u6CD5\u95ED\u5173\u4E00\u6708\u4EC5+4\u4FEE\u4E3A\uFF0C\u9EC4\u9636+24\uFF0C\u4EE5\u6B64\u7C7B\u63A8\uFF1B**\u4E0D\u8981\u4E3A\u4E86\u5FEB\u901F\u7A81\u7834\u800C\u5938\u5927\u4FEE\u70BC\u6536\u76CA**\uFF0C\u7A81\u7834\u5E94\u5FAA\u5E8F\u6E10\u8FDB\uFF08\u4FEE\u4E3A\u4ECE\u5F53\u524D\u503C\u7F13\u6162\u6DA8\u5230\u4E0A\u9650\uFF0C\u901A\u5E38\u9700\u8981\u591A\u6B21\u95ED\u5173\uFF09\uFF0C\u9664\u975E\u5267\u60C5\u6709\u91CD\u5927\u673A\u7F18/\u4E39\u836F\u652F\u6491\uFF0C\u4E0D\u5F97\u4E00\u56DE\u5408\u66B4\u589E\u4FEE\u4E3A\u76F4\u63A5\u7A81\u7834\u3002\u3010\u4F4D\u7F6E\u3011\u73A9\u5BB6\u884C\u52A8\u6D89\u53CA\u8D76\u8DEF/\u79BB\u5F00/\u5230\u8FBE\u65F6\u586B location\uFF08\u79FB\u52A8\u540E\u7684\u4F4D\u7F6E\uFF09\uFF0C\u539F\u5730\u505C\u7559\u7701\u7565\uFF1B"\u9644\u8FD1\u7684\u4EBA"\u7531\u4F4D\u7F6E\u51B3\u5B9A\uFF0C\u79FB\u52A8\u540E\u53EA\u6709\u65B0\u4F4D\u7F6E\u9644\u8FD1\u7684 NPC \u53EF\u4EA4\u4E92\u3002**\u94C1\u5F8B\uFF1A\u5267\u60C5\u4E2D\u4EFB\u4F55 NPC \u51FA\u73B0\u5728\u73A9\u5BB6\u6240\u5728\u5730\uFF08\u5BF9\u8BDD/\u540C\u884C/\u76F8\u9047/\u5728\u573A\uFF09\uFF0C\u5FC5\u987B\u540C\u6B65\u7528 npcMoves \u58F0\u660E\u8BE5 NPC \u79FB\u52A8\u5230\u73A9\u5BB6\u5F53\u524D\u4F4D\u7F6E**\uFF08\u5426\u5219\u7CFB\u7EDF\u91CC NPC \u4F4D\u7F6E\u4E0D\u53D8\uFF0C"\u9644\u8FD1\u4E4B\u4EBA"\u4E0D\u66F4\u65B0\uFF0C\u5267\u60C5\u4E0E\u6570\u636E\u8131\u8282\uFF09\uFF1BNPC \u79BB\u5F00\u5219\u7528 npcMoves \u79FB\u5230\u522B\u5904\u3002**npcMoves \u7684 location \u5FC5\u987B\u662F\u73A9\u5BB6\u5F53\u524D\u6240\u5728\u57CE\u9547\uFF08\u72B6\u6001 stats.location\uFF09\u6216\u4E16\u754C\u9AA8\u67B6\u7684\u5730\u57DF/\u57CE\u9547\uFF0C\u7981\u6B62\u586B\u5267\u60C5\u5185\u7684\u5C0F\u5730\u70B9**\uFF08\u8336\u697C/\u5C71\u6D1E/\u5BC6\u6797\u7B49\u8BB0\u53D9\u5730\u70B9\u4E0D\u662F\u4F4D\u7F6E\uFF0CNPC \u4F4D\u7F6E\u53EA\u8BA4\u57CE\u9547/\u5730\u57DF\uFF09\u3002NPC \u4F4D\u7F6E\u53D8\u66F4\u987B\u7ED3\u5408\u5176\u4E2A\u4EBA\u80CC\u666F\u3001\u4E0E\u73A9\u5BB6\u597D\u611F\u3001\u5927\u4E8B\u4EF6\u8D70\u5411\u5408\u7406\u51B3\u5B9A\uFF0C\u4E0D\u8981\u65E0\u6545\u79FB\u52A8\u3002NPC \u5883\u754C\u53D8\u5316\uFF08\u7A81\u7834/\u8DCC\u843D\uFF09\u7528 npcChanges \u58F0\u660E\u5E76\u7ED9\u51FA\u539F\u56E0\uFF08\u7A81\u7834\u673A\u7F18/\u8D70\u706B\u5165\u9B54\u7B49\uFF09\uFF0C\u4E0D\u8981\u65E0\u6545\u6539\u5883\u754C\u3002\u3010\u5267\u60C5\u5408\u7406\u6027\u3011\u5267\u60C5\u89C4\u6A21\u987B\u4E0E\u73A9\u5BB6\u8EAB\u4EFD\u5B9E\u529B\u76F8\u79F0\uFF1A\u73A9\u5BB6\u4E0D\u5E94\u6210\u4E3A\u8D85\u51FA\u81EA\u8EAB\u5C42\u7EA7\u4E8B\u4EF6\u7684\u4E3B\u89D2\uFF1B\u5F15\u5165\u7684\u4EBA\u7269\u3001\u5730\u70B9\u3001\u51B2\u7A81\u987B\u5728\u73A9\u5BB6\u8BA4\u77E5\u4E0E\u5173\u7CFB\u8303\u56F4\u5185\uFF0C\u5C0A\u91CD\u5883\u754C\u538B\u5236\u4E0E\u4FEE\u4ED9\u4E16\u754C\u79E9\u5E8F\u3002\u3010\u5267\u60C5\u8854\u63A5\u3011\u8F93\u5165\u4E2D\u7684\u3010\u804A\u5929\u8BB0\u5F55\u3011\u4E0E\u3010\u5267\u60C5\u53F2\u3011\u662F\u6B64\u524D\u56DE\u5408\u7684\u5B9E\u9645\u5267\u60C5\uFF0C\u7EED\u5199\u5FC5\u987B\u8854\u63A5\u5176\u60C5\u8282\u3001\u4EBA\u7269\u5173\u7CFB\u4E0E\u73A9\u5BB6\u5DF2\u505A\u9009\u62E9\uFF0C\u4E0D\u5F97\u5F53\u4F5C\u521D\u9047\u91CD\u65B0\u5C55\u5F00\uFF0C\u4E0D\u5F97\u91CD\u590D\u5DF2\u53D1\u751F\u7684\u4E8B\u4EF6\u3002\u3010\u7A81\u7834\u7EA6\u675F\u3011**\u7A81\u7834\u662F\u7CFB\u7EDF\u5224\u5B9A\u7684\u6D41\u7A0B\uFF1A\u73A9\u5BB6\u8BF4\u201C\u7A81\u7834/\u51B2\u51FBX\u5C42/\u51B2\u51FB\u74F6\u9888/\u51B2\u51FB\u4E0B\u4E00\u5883\u201D\u4E14\u4FEE\u4E3A\u5DF2\u8FBE\u5F53\u524D\u5883\u754C\u4E0A\u9650\uFF08\u72B6\u6001 stats.cap\uFF0C\u4FEE\u4E3A=cap\uFF09\u65F6\uFF0C\u672C\u56DE\u5408\u5FC5\u987B\u586B breakthrough:true**\uFF08\u8FD9\u662F\u89E6\u53D1\u7CFB\u7EDF\u7A81\u7834\u5224\u5B9A\u7684\u552F\u4E00\u5F00\u5173\uFF0C\u4E0D\u586B\u5219\u4E0D\u4F1A\u771F\u6B63\u7A81\u7834\uFF0C\u53D9\u4E8B\u4F1A\u4E0E\u6570\u636E\u8131\u8282\uFF09\uFF1B\u4FEE\u4E3A\u672A\u6EE1\u65F6\u4E0D\u5F97\u586B true\uFF0C\u5E94\u628A\u672C\u56DE\u5408\u5199\u6210\u7EE7\u7EED\u4FEE\u70BC/\u79EF\u7D2F\u4FEE\u4E3A\uFF08cultivate\uFF09\uFF0C\u5E76\u8BA9 delta \u589E\u52A0\u4FEE\u4E3A\uFF0C\u76F4\u5230\u4FEE\u4E3A\u8FBE\u6807\u540E\u518D\u7A81\u7834\u3002\u3010\u9009\u9879\u3011\u5B58\u6D3B\u65F6\u672C\u56DE\u5408\u7ED3\u675F\u5FC5\u987B\u7ED9\u51FA 4 \u4E2A\u4E0B\u8F6E\u9009\u9879\uFF08options\uFF09\uFF0C\u6B7B\u4EA1\u65F6\u7701\u7565\u3002\u9009\u9879\u8981\u5408\u7406\uFF1A\u4E0E\u73A9\u5BB6\u5F53\u524D\u5883\u754C/\u5904\u5883\u5339\u914D\uFF08\u5883\u754C\u538B\u5236\u662F\u94C1\u5F8B\uFF0C\u4F4E\u5883\u754C\u4E0D\u786C\u62FC\u9AD8\u5883\u754C\u3001\u4E0D\u9A70\u63F4\u964C\u751F\u5B97\u95E8\u3001\u4E0D\u4E0A\u95E8\u89C1\u4E0D\u8BA4\u8BC6\u7684\u4EBA\uFF09\uFF1B\u53EA\u7528\u672C\u56DE\u5408\u5DF2\u77E5\u4FE1\u606F\u4E0E\u5728\u573A/\u5DF2\u6709\u5173\u7CFB\u4E4B\u4EBA\uFF1Bbattle \u5206\u652F\u987B\u53CD\u6620\u73A9\u5BB6\u771F\u5B9E\u80DC\u7B97\uFF1B\u672F\u6CD5\u8054\u52A8\uFF08requiresTechnique\uFF09\u5FC5\u987B\u9010\u5B57\u53D6\u81EA\u73A9\u5BB6\u5DF2\u4E60\u529F\u6CD5\uFF08\u5F53\u524D\u72B6\u6001 methods \u7684 techniques\uFF09\u3002';
-var CHOICE_SYSTEM = '\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u6289\u62E9\u8BBE\u8BA1\u8005\u3002\u57FA\u4E8E\u672C\u56DE\u5408\u5267\u60C5\uFF0C\u9700\u7ED9\u51FA 4 \u4E2A\u5C94\u8DEF\u9884\u544A\u3002\u8981\u6C42\uFF1A4\u9009\u9879\u5404\u226420\u5B57\uFF0C\u98CE\u9669\u9879\u9644 2-3 branches\uFF08title\u226412\u5B57/kind battle/other/prob0.05-0.95/simpleDesc\u226430\u5B57\uFF09\uFF0C\u672F\u6CD5\u8054\u52A8\u53EA\u80FD\u5F15\u7528\u73A9\u5BB6\u5DF2\u4E60\u529F\u6CD5\u4E2D\u7684\u672F\u6CD5\u540D\uFF08\u5F53\u524D\u72B6\u6001 methods \u7684 techniques\uFF09\uFF0C\u7981\u6B62\u4ED6\u4EBA\u672F\u6CD5\u3002\u53EA\u7ED9\u7B80\u7565\u9884\u544A\u3002\u3010\u5408\u7406\u6027\u94C1\u5F8B\u3011\u6BCF\u4E2A\u9009\u9879\u5FC5\u987B\u4E0E\u7384\u5E7B\u4E16\u754C\u89C4\u5219\u548C\u73A9\u5BB6\u5904\u5883\u81EA\u6D3D\uFF0C\u614E\u91CD\u63A8\u6572\u540E\u518D\u7ED9\u51FA\uFF1A\u2460 \u5B9E\u529B\u5339\u914D\uFF1A\u884C\u52A8\u89C4\u6A21\u4E0E\u51B2\u7A81\u5F3A\u5EA6\u987B\u4E0E\u73A9\u5BB6\u5F53\u524D\u5883\u754C\u76F8\u7B26\u3002\u5883\u754C\u538B\u5236\u662F\u94C1\u5F8B\u2014\u2014\u4F4E\u5883\u754C\u4E3B\u52A8\u6311\u8845\u9AD8\u5883\u754C\u7B49\u4E8E\u9001\u6B7B\uFF1B\u51E1\u4EBA/\u7EC3\u6C14\u9636\u6BB5\u4EE5\u4FDD\u547D\u3001\u63A2\u7D22\u3001\u4EBA\u9645\u3001\u5C0F\u89C4\u6A21\u51B2\u7A81\u4E3A\u4E3B\uFF0C\u5B97\u95E8/\u8DE8\u52BF\u529B\u7EA7\u522B\u4E8B\u4EF6\u53EA\u80FD\u95F4\u63A5\u63A5\u89E6\uFF08\u5982\u5076\u9047\u9003\u96BE\u8005\u3001\u542C\u95FB\u4F20\u95FB\uFF09\uFF0C\u73A9\u5BB6\u4E0D\u5E94\u6210\u4E3A\u8D85\u51FA\u81EA\u8EAB\u5C42\u7EA7\u4E8B\u4EF6\u7684\u4E3B\u89D2\u3002\u2461 \u5173\u7CFB\u8303\u56F4\uFF1A\u4EA4\u4E92\u5BF9\u8C61\u53EA\u80FD\u662F\u672C\u56DE\u5408\u5728\u573A\u4E4B\u4EBA\u6216\u73A9\u5BB6\u5DF2\u6709\u5173\u7CFB\u7684 NPC\uFF08\u89C1\u5F53\u524D\u72B6\u6001 nearby \u4E0E\u597D\u611F\uFF09\uFF0C\u73A9\u5BB6\u672A\u63A5\u89E6\u8FC7\u7684\u5B97\u95E8\u3001\u52BF\u529B\u3001\u4EBA\u7269\u4E0D\u5F97\u51ED\u7A7A\u6210\u4E3A\u9009\u9879\u76EE\u6807\uFF08\u5982\u65E0\u5B97\u95E8\u80CC\u666F\u5374"\u9A70\u63F4\u5B97\u95E8"\u3001\u4E0D\u8BA4\u8BC6\u7684\u4EBA\u5374\u4E0A\u95E8\u62DC\u8BBF\uFF09\u3002\u2462 \u8BA4\u77E5\u8303\u56F4\uFF1A\u9009\u9879\u53EA\u80FD\u57FA\u4E8E\u672C\u56DE\u5408\u5DF2\u77E5\u4FE1\u606F\u4E0E\u5F53\u524D\u5904\u5883\u5C55\u5F00\uFF0C\u4E0D\u5F97\u5F15\u5165\u5267\u60C5\u4E2D\u672A\u51FA\u73B0\u8FC7\u7684\u5730\u70B9\u3001\u76EE\u6807\u6216\u4EBA\u7269\u3002\u2463 \u4E16\u754C\u89C4\u5219\uFF1A\u5C0A\u91CD\u4FEE\u4ED9\u4E16\u754C\u79E9\u5E8F\u2014\u2014\u5883\u754C\u538B\u5236\u3001\u8D44\u6E90\u7A00\u7F3A\u3001\u52BF\u529B\u8FB9\u754C\u3001\u56E0\u679C\u4EE3\u4EF7\uFF1B\u6536\u76CA\u4E0E\u98CE\u9669\u6210\u6B63\u6BD4\uFF0Cbattle \u7C7B prob \u987B\u53CD\u6620\u73A9\u5BB6\u771F\u5B9E\u80DC\u7B97\uFF0C\u51E1\u4EBA\u9762\u5BF9\u4FEE\u58EB\u7EA7\u654C\u4EBA\u5E94\u4EE5\u9003\u9041/\u5468\u65CB\u4E3A\u4E3B\u800C\u975E\u6B63\u9762\u786C\u62FC\u3002';
-var BREAKTHROUGH_SYSTEM = '\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u7A81\u7834\u63A8\u6F14\u8005\u3002\u73A9\u5BB6\u51B2\u51FB\u74F6\u9888\uFF0C\u6210\u8D25\u5DF2\u7531\u7CFB\u7EDF\u5224\u5B9A\uFF08\u8F93\u5165\u4E2D\u7684"\u7A81\u7834\u8BA1\u7B97\uFF1A\u6210\u529F=true/false"\u662F\u552F\u4E00\u6743\u5A01\uFF0C\u4F60\u65E0\u6743\u66F4\u6539\uFF09\u3002\u3010\u94C1\u5F8B\u3011\u6210\u529F=true \u65F6\uFF1A\u5199\u7A81\u7834\u6210\u529F\u7684\u573A\u666F\uFF08\u7834\u5883\u3001\u5883\u754C\u63D0\u5347\u3001\u611F\u53D7\u5347\u534E\uFF09\uFF1B\u6210\u529F=false \u65F6\uFF1A**\u5FC5\u987B\u5199\u7A81\u7834\u5931\u8D25\u7684\u573A\u666F**\uFF08\u74F6\u9888\u5982\u5929\u5811\u3001\u6C14\u673A\u7D0A\u4E71\u3001\u51B2\u51FB\u5931\u8D25\u53CD\u566C\u3001\u9669\u4E9B\u8D70\u706B\u5165\u9B54\u7B49\uFF09\uFF0C**\u7EDD\u5BF9\u7981\u6B62\u5199\u7A81\u7834\u6210\u529F\u3001\u7981\u6B62\u5199\u5883\u754C\u63D0\u5347\u3001\u7981\u6B62\u5199"\u7EC8\u4E8E\u7A81\u7834"**\u2014\u2014\u5931\u8D25\u4E86\u5C31\u662F\u5931\u8D25\uFF0C\u53EA\u80FD\u5199\u5931\u8D25\u540E\u7684\u72B6\u6001\uFF08\u4FEE\u4E3A\u4E0D\u7A33\u3001\u9700\u9759\u517B\u3001\u4E0B\u6B21\u518D\u8BD5\uFF09\u3002\u6587\u6848\u5FC5\u987B\u4E0E"\u7A81\u7834\u8BA1\u7B97\uFF1A\u6210\u529F"\u4E25\u683C\u4E00\u81F4\uFF0C\u73A9\u5BB6\u8F93\u5165\u4E2D\u7684"\u7A81\u7834/\u51B2\u51FB\u74F6\u9888"\u662F\u8BF7\u6C42\uFF0C\u4E0D\u4EE3\u8868\u7ED3\u679C\u3002extraCultivation/nextRateBonus \u6309\u6210\u529F\u4E0E\u5426\u5408\u7406\u7ED9\u51FA\uFF1A\u6210\u529F\u53EF\u7ED9\u5C11\u91CF\u989D\u5916\u4FEE\u4E3A\u4E0E\u4E0B\u6B21\u52A0\u6210\uFF1B\u5931\u8D25\u7ED9\u6781\u5C11\u7684\u611F\u609F\u4FEE\u4E3A\u6216\u4E0D\u7ED9\uFF0CnextRateBonus \u53EF\u7ED9\u5931\u8D25\u540E\u7684\u5C0F\u5E45\u52A0\u6210\uFF08\u7834\u800C\u540E\u7ACB\uFF09\u3002';
+var OPENING_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u8BF4\u4E66\u4EBA\u3002\u73A9\u5BB6\u521A\u5B8C\u6210\u5EFA\u89D2\uFF0C\u9700\u5199\u5F00\u573A\u7AE0\u8282\u3002\u8981\u6C42\uFF1A200-400\u5B57\u7B2C\u4E8C\u4EBA\u79F0\uFF0C\u542B\u2460\u6240\u5728\u5730\u57DF/\u5B97\u95E8\u2461\u666F\u8C61\u6C1B\u56F4\u24621-2\u53E5\u6765\u5386\u8FC7\u6E21\u2463\u547C\u5E94\u51FA\u8EAB\u6027\u683C\u3002\u7ED3\u5C3E\u7ED9 0-3 \u6761\u9009\u9879\u2014\u2014\u6BCF\u6761\u5FC5\u987B\u662F\u73A9\u5BB6\u53EF\u76F4\u63A5\u91C7\u7EB3\u6267\u884C\u7684\u5177\u4F53\u884C\u52A8\uFF08\u7531\u5F00\u573A\u60C5\u8282\u4E0E NPC \u8BF1\u5BFC\uFF0C\u5982\u300C\u968F\u5546\u961F\u5357\u4E0B\u9752\u5DDE\u300D\u300C\u56DE\u4F4F\u5904\u6574\u7406\u884C\u88C5\u300D\uFF09\uFF0C\u7981\u6B62\u7EAF\u60C5\u62A5/\u9884\u544A\u5F0F\u8868\u8FF0\uFF1B\u9009\u9879\u53EA\u662F\u8D77\u70B9\uFF0C\u73A9\u5BB6\u81EA\u7531\u63CF\u8FF0\u884C\u52A8\u540C\u6837\u6B22\u8FCE\u3002";
+var TURN_SYSTEM = '\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u8BF4\u4E66\u4EBA\u3002\u73A9\u5BB6\u4EE5\u7B2C\u4E8C\u4EBA\u79F0\u63A8\u8FDB\u7AE0\u8282\u3002\u9002\u5F53\u5206\u6BB5\u4F18\u5316\u9605\u8BFB\u4F53\u9A8C\uFF0C\u5BF9\u8BDD\u589E\u52A0\u4EBA\u5473\uFF0C\u53D9\u4E8B\u907F\u514D\u8FC7\u5EA6\u6587\u9752\u7684AI\u5473\u3002\u63A8\u5267\u60C5\u4E14\u586B timeCost 0-\u6570\u5341\u6708\u81EA\u5B9A\uFF0C\u5927\u4E8B\u4EF6 active \u5FC5\u5E26 eventRef\uFF0C\u65E5\u5E38\u53EF\u4E0D\u5E26\uFF1B\u5F97\u5931\u8D70 delta \u6B63\u8D1F\uFF08\u9003\u79BB\u53EF\u8D1F\uFF09\uFF1BNPC \u4EC5\u5F15\u771F\u4EBA\uFF1B\u597D\u611F\u6309\u5F53\u524D\u503C\u5199\u6001\u5EA6\uFF08-20~20\uFF0C\u521D\u8BC6+1~5\uFF09\uFF1B\u4FEE\u70BC\u6309\u4E3B\u4FEE\u6548\u7387\uFF0C\u53EF\u6839\u636E\u5267\u60C5\u9002\u5F53\u63D0\u5347\uFF1B\u5267\u60C5\u4E2D\u53EF\u83B7\u53D6\u6216\u6D88\u8017\u5404\u79CD\u5404\u6837\u7684\u8D44\u6E90\uFF08\u6218\u6597\u3001\u673A\u9047\u3001\u7B49\u7B49\uFF09\uFF0C\u6570\u503C\u7531 delta \u7ED3\u7B97\uFF0C\u7531\u4F60\u81EA\u5DF1\u642D\u914D\u5267\u60C5\u5408\u7406\u51B3\u5B9A\uFF08\u6CE8\u610F\u53C2\u8003schema\u4E2D\u7684\u8BF4\u660E\u90E8\u5206\uFF09\u3002\u7981\u6B62\u4E71\u5165\u4E0D\u5728\u9644\u8FD1\u7684npc\u63BA\u548C\u5267\u60C5\uFF0C\u8981\u57FA\u4E8Enpc\u6240\u5728\u5730\u57DF\u4E0E\u4FEE\u4E3A\u7B49\u8003\u8651\u4EA4\u4E92\u5267\u60C5\u3002\u3010\u4FEE\u70BC\u901F\u5EA6\u53C2\u8003\u3011\u529F\u6CD5\u54C1\u9636\u51B3\u5B9A\u4FEE\u70BC\u901F\u5EA6\uFF08\u4FEE\u4E3A/\u6708\uFF09\uFF1A\u51E1\u54C14\u3001\u9EC4\u963624\u3001\u7384\u9636120\u3001\u5730\u9636600\u3001\u5929\u96363000\u3002\u95ED\u5173\u65F6\u95F4\u4E0E\u4FEE\u4E3A\u589E\u957F\u5FC5\u987B\u7B26\u5408\u4E3B\u4FEE\u529F\u6CD5\u54C1\u9636\u2014\u2014\u51E1\u54C1\u529F\u6CD5\u95ED\u5173\u4E00\u6708\u4EC5+4\u4FEE\u4E3A\uFF0C\u9EC4\u9636+24\uFF0C\u4EE5\u6B64\u7C7B\u63A8\uFF1B**\u4E0D\u8981\u4E3A\u4E86\u5FEB\u901F\u7A81\u7834\u800C\u5938\u5927\u4FEE\u70BC\u6536\u76CA**\uFF0C\u7A81\u7834\u5E94\u5FAA\u5E8F\u6E10\u8FDB\uFF08\u4FEE\u4E3A\u4ECE\u5F53\u524D\u503C\u7F13\u6162\u6DA8\u5230\u4E0A\u9650\uFF0C\u901A\u5E38\u9700\u8981\u591A\u6B21\u95ED\u5173\uFF09\uFF0C\u9664\u975E\u5267\u60C5\u6709\u91CD\u5927\u673A\u7F18/\u4E39\u836F\u652F\u6491\uFF0C\u4E0D\u5F97\u4E00\u56DE\u5408\u66B4\u589E\u4FEE\u4E3A\u76F4\u63A5\u7A81\u7834\u3002\u3010\u4F4D\u7F6E\u3011\u73A9\u5BB6\u884C\u52A8\u6D89\u53CA\u8D76\u8DEF/\u79BB\u5F00/\u5230\u8FBE\u65F6\u586B location\uFF08\u79FB\u52A8\u540E\u7684\u4F4D\u7F6E\uFF09\uFF0C\u539F\u5730\u505C\u7559\u7701\u7565\uFF1B"\u9644\u8FD1\u7684\u4EBA"\u7531\u4F4D\u7F6E\u51B3\u5B9A\uFF0C\u79FB\u52A8\u540E\u53EA\u6709\u65B0\u4F4D\u7F6E\u9644\u8FD1\u7684 NPC \u53EF\u4EA4\u4E92\u3002**\u94C1\u5F8B\uFF1A\u5267\u60C5\u4E2D\u4EFB\u4F55 NPC \u51FA\u73B0\u5728\u73A9\u5BB6\u6240\u5728\u5730\uFF08\u5BF9\u8BDD/\u540C\u884C/\u76F8\u9047/\u5728\u573A\uFF09\uFF0C\u5FC5\u987B\u540C\u6B65\u7528 npcMoves \u58F0\u660E\u8BE5 NPC \u79FB\u52A8\u5230\u73A9\u5BB6\u5F53\u524D\u4F4D\u7F6E**\uFF08\u5426\u5219\u7CFB\u7EDF\u91CC NPC \u4F4D\u7F6E\u4E0D\u53D8\uFF0C"\u9644\u8FD1\u4E4B\u4EBA"\u4E0D\u66F4\u65B0\uFF0C\u5267\u60C5\u4E0E\u6570\u636E\u8131\u8282\uFF09\uFF1BNPC \u79BB\u5F00\u5219\u7528 npcMoves \u79FB\u5230\u522B\u5904\u3002**npcMoves \u7684 location \u5FC5\u987B\u662F\u73A9\u5BB6\u5F53\u524D\u6240\u5728\u57CE\u9547\uFF08\u72B6\u6001 stats.location\uFF09\u6216\u4E16\u754C\u9AA8\u67B6\u7684\u5730\u57DF/\u57CE\u9547\uFF0C\u7981\u6B62\u586B\u5267\u60C5\u5185\u7684\u5C0F\u5730\u70B9**\uFF08\u8336\u697C/\u5C71\u6D1E/\u5BC6\u6797\u7B49\u8BB0\u53D9\u5730\u70B9\u4E0D\u662F\u4F4D\u7F6E\uFF0CNPC \u4F4D\u7F6E\u53EA\u8BA4\u57CE\u9547/\u5730\u57DF\uFF09\u3002NPC \u4F4D\u7F6E\u53D8\u66F4\u987B\u7ED3\u5408\u5176\u4E2A\u4EBA\u80CC\u666F\u3001\u4E0E\u73A9\u5BB6\u597D\u611F\u3001\u5927\u4E8B\u4EF6\u8D70\u5411\u5408\u7406\u51B3\u5B9A\uFF0C\u4E0D\u8981\u65E0\u6545\u79FB\u52A8\u3002NPC \u5883\u754C\u53D8\u5316\uFF08\u7A81\u7834/\u8DCC\u843D\uFF09\u7528 npcChanges \u58F0\u660E\u5E76\u7ED9\u51FA\u539F\u56E0\uFF08\u7A81\u7834\u673A\u7F18/\u8D70\u706B\u5165\u9B54\u7B49\uFF09\uFF0C\u4E0D\u8981\u65E0\u6545\u6539\u5883\u754C\u3002\u3010\u5267\u60C5\u5408\u7406\u6027\u3011\u5267\u60C5\u89C4\u6A21\u987B\u4E0E\u73A9\u5BB6\u8EAB\u4EFD\u5B9E\u529B\u76F8\u79F0\uFF1A\u73A9\u5BB6\u4E0D\u5E94\u6210\u4E3A\u8D85\u51FA\u81EA\u8EAB\u5C42\u7EA7\u4E8B\u4EF6\u7684\u4E3B\u89D2\uFF1B\u5F15\u5165\u7684\u4EBA\u7269\u3001\u5730\u70B9\u3001\u51B2\u7A81\u987B\u5728\u73A9\u5BB6\u8BA4\u77E5\u4E0E\u5173\u7CFB\u8303\u56F4\u5185\uFF0C\u5C0A\u91CD\u5883\u754C\u538B\u5236\u4E0E\u4FEE\u4ED9\u4E16\u754C\u79E9\u5E8F\u3002\u3010\u5267\u60C5\u8854\u63A5\u3011\u8F93\u5165\u4E2D\u7684\u3010\u804A\u5929\u8BB0\u5F55\u3011\u4E0E\u3010\u5267\u60C5\u53F2\u3011\u662F\u6B64\u524D\u56DE\u5408\u7684\u5B9E\u9645\u5267\u60C5\uFF0C\u7EED\u5199\u5FC5\u987B\u8854\u63A5\u5176\u60C5\u8282\u3001\u4EBA\u7269\u5173\u7CFB\u4E0E\u73A9\u5BB6\u5DF2\u505A\u9009\u62E9\uFF0C\u4E0D\u5F97\u5F53\u4F5C\u521D\u9047\u91CD\u65B0\u5C55\u5F00\uFF0C\u4E0D\u5F97\u91CD\u590D\u5DF2\u53D1\u751F\u7684\u4E8B\u4EF6\u3002\u3010\u7A81\u7834\u8DEF\u7531\u3011\u73A9\u5BB6\u610F\u56FE\u4E3A\u201C\u51B2\u51FB\u74F6\u9888/\u95ED\u5173\u7A81\u7834/\u51B2\u51FB\u4E0B\u4E00\u5883\u201D\u65F6\uFF0C**\u4E0D\u8981\u5728 game_turn \u91CC\u63A8\u8FDB\u7A81\u7834**\u2014\u2014\u6539\u8C03 game_breakthrough \u5DE5\u5177\uFF08\u7CFB\u7EDF\u5224\u5B9A\u6210\u8D25\u5E76\u5199\u7A81\u7834\u53D9\u4E8B\uFF09\u3002\u4FEE\u4E3A\u672A\u8FBE\u4E0A\u9650\uFF08\u4FEE\u4E3A<stats.cap\uFF09\u65F6\u5373\u4F7F\u7528\u6237\u60F3\u7A81\u7834\uFF0C\u4E5F\u5E94\u7EE7\u7EED\u7528 game_turn \u5199\u79EF\u7D2F\u4FEE\u4E3A\u5E76\u544A\u77E5\u706B\u5019\u672A\u5230\u3002\u3010\u751F\u6B7B\u5224\u5B9A\u3011dead \u9ED8\u8BA4 false\u3002\u4EC5\u5F53\u672C\u56DE\u5408\u53D9\u4E8B\u660E\u786E\u5BFC\u81F4\u89D2\u8272\u6B7B\u4EA1\uFF08\u6218\u6B7B/\u5F62\u795E\u4FF1\u706D/\u9668\u843D/\u8D70\u706B\u5165\u9B54\u8EAB\u4EA1\uFF09\u624D\u586B true\uFF0C\u4E14 text \u5FC5\u987B\u5199\u51FA\u5B8C\u6574\u7684\u6B7B\u4EA1\u573A\u666F\u4E0E\u6536\u675F\uFF1B\u4E0D\u8981\u4E3A\u4E86\u5236\u9020\u7D27\u5F20\u611F\u968F\u610F\u5224\u6B7B\u2014\u2014\u6B7B\u4EA1\u662F\u7EC8\u5C40\uFF0C\u73A9\u5BB6\u9700\u91CD\u5F00\u3002\u3010\u9009\u9879\u3011\u672C\u56DE\u5408\u7ED3\u675F\u7ED9 0-3 \u6761\u9009\u9879\uFF08options\uFF0C\u53EF\u4E3A 0 \u6761\uFF09\u3002**\u6BCF\u6761\u5FC5\u987B\u662F\u73A9\u5BB6\u53EF\u76F4\u63A5\u91C7\u7EB3\u6267\u884C\u7684\u5177\u4F53\u884C\u52A8**\uFF08\u7B2C\u4E00\u4EBA\u79F0\u53EF\u6267\u884C\u53E5\uFF0C\u5982\u300C\u6697\u4E2D\u8C03\u67E5\u574A\u5E02\u5931\u8E2A\u6848\u300D\u300C\u9080\u67F3\u5E08\u59D0\u540E\u5C71\u8BBA\u9053\u300D\uFF09\uFF0C**\u7981\u6B62\u7EAF\u60C5\u62A5/\u9884\u544A\u5F0F\u8868\u8FF0**\uFF08\u5982\u300C\u5B97\u95E8\u5927\u6BD4\u5C06\u81F3\u300D\u300C\u9634\u8C0B\u6D6E\u73B0\u300D\u2014\u2014\u90A3\u662F\u4FE1\u606F\u4E0D\u662F\u884C\u52A8\uFF09\u3002\u884C\u52A8\u6765\u6E90\u8BF1\u5BFC\u81EA\u4E24\u7C7B\u94A9\u5B50\uFF1A\u2460\u8FDB\u884C\u4E2D/\u5C06\u5230\u6765\u7684\u5927\u4E8B\u4EF6\uFF08event\uFF09\u2461\u5728\u573A/\u5DF2\u6709\u5173\u7CFB NPC \u7684\u5173\u7CFB\u63A8\u8FDB\uFF08npc\uFF09\u3002**\u9009\u9879\u53EA\u662F\u8D77\u70B9\uFF0C\u73A9\u5BB6\u81EA\u7531\u63CF\u8FF0\u884C\u52A8\u540C\u6837\u6B22\u8FCE**\u2014\u2014\u4E16\u754C\u8DDF\u7740\u73A9\u5BB6\u7684\u5FC3\u610F\u6F14\u8FDB\uFF1B\u672A\u7ED3\u675F\u7684\u5927\u4E8B\u4EF6\u53EF\u53CD\u590D\u8BF1\u5BFC\u51FA\u76F8\u5173\u884C\u52A8\u4F5C\u4E3A\u63D0\u9192\uFF1B\u7981\u6B62\u5F15\u5165\u73A9\u5BB6\u8BA4\u77E5\u5916\u7684\u76EE\u6807\u3002';
+var BREAKTHROUGH_SYSTEM = '\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u7A81\u7834\u63A8\u6F14\u8005\u3002\u73A9\u5BB6\u51B2\u51FB\u74F6\u9888\uFF0C\u6210\u8D25\u5DF2\u7531\u7CFB\u7EDF\u5224\u5B9A\uFF08\u8F93\u5165\u4E2D\u7684"\u7A81\u7834\u8BA1\u7B97\uFF1A\u6210\u529F=true/false"\u662F\u552F\u4E00\u6743\u5A01\uFF0C\u4F60\u65E0\u6743\u66F4\u6539\uFF09\u3002\u3010\u94C1\u5F8B\u3011\u6210\u529F=true \u65F6\uFF1A\u5199\u7A81\u7834\u6210\u529F\u7684\u573A\u666F\uFF08\u7834\u5883\u3001\u5883\u754C\u63D0\u5347\u3001\u611F\u53D7\u5347\u534E\uFF09\uFF1B\u6210\u529F=false \u65F6\uFF1A**\u5FC5\u987B\u5199\u7A81\u7834\u5931\u8D25\u7684\u573A\u666F**\uFF08\u74F6\u9888\u5982\u5929\u5811\u3001\u6C14\u673A\u7D0A\u4E71\u3001\u51B2\u51FB\u5931\u8D25\u53CD\u566C\u3001\u9669\u4E9B\u8D70\u706B\u5165\u9B54\u7B49\uFF09\uFF0C**\u7EDD\u5BF9\u7981\u6B62\u5199\u7A81\u7834\u6210\u529F\u3001\u7981\u6B62\u5199\u5883\u754C\u63D0\u5347\u3001\u7981\u6B62\u5199"\u7EC8\u4E8E\u7A81\u7834"**\u2014\u2014\u5931\u8D25\u4E86\u5C31\u662F\u5931\u8D25\uFF0C\u53EA\u80FD\u5199\u5931\u8D25\u540E\u7684\u72B6\u6001\uFF08\u4FEE\u4E3A\u4E0D\u7A33\u3001\u9700\u9759\u517B\u3001\u4E0B\u6B21\u518D\u8BD5\uFF09\u3002\u6587\u6848\u5FC5\u987B\u4E0E"\u7A81\u7834\u8BA1\u7B97\uFF1A\u6210\u529F"\u4E25\u683C\u4E00\u81F4\uFF0C\u73A9\u5BB6\u8F93\u5165\u4E2D\u7684"\u7A81\u7834/\u51B2\u51FB\u74F6\u9888"\u662F\u8BF7\u6C42\uFF0C\u4E0D\u4EE3\u8868\u7ED3\u679C\u3002extraCultivation/nextRateBonus \u6309\u6210\u529F\u4E0E\u5426\u5408\u7406\u7ED9\u51FA\uFF1A\u6210\u529F\u53EF\u7ED9\u5C11\u91CF\u989D\u5916\u4FEE\u4E3A\u4E0E\u4E0B\u6B21\u52A0\u6210\uFF1B\u5931\u8D25\u7ED9\u6781\u5C11\u7684\u611F\u609F\u4FEE\u4E3A\u6216\u4E0D\u7ED9\uFF0CnextRateBonus \u53EF\u7ED9\u5931\u8D25\u540E\u7684\u5C0F\u5E45\u52A0\u6210\uFF08\u7834\u800C\u540E\u7ACB\uFF09\u3002\u3010\u9009\u9879\u3011\u7ED3\u5C3E\u7ED9 0-3 \u6761\u9009\u9879\u2014\u2014\u6BCF\u6761\u5FC5\u987B\u662F\u73A9\u5BB6\u53EF\u76F4\u63A5\u91C7\u7EB3\u6267\u884C\u7684\u5177\u4F53\u884C\u52A8\uFF08\u7531\u7A81\u7834\u540E\u7684\u65B0\u5C40\u52BF\u4E0E NPC \u5173\u7CFB\u8BF1\u5BFC\uFF0C\u5982\u300C\u95ED\u5173\u7A33\u56FA\u65B0\u5883\u754C\u300D\u300C\u4E0B\u5C71\u5BFB\u8BBF\u6545\u4EBA\u300D\uFF09\uFF0C\u7981\u6B62\u7EAF\u60C5\u62A5/\u9884\u544A\u5F0F\u8868\u8FF0\u3002';
 var QUERY_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u6863\u6848\u67E5\u8BE2\u8005\u3002\u73A9\u5BB6\u8BE2\u95EE\u7EAF\u95EE\u9898\uFF0C\u9700\u57FA\u4E8E\u5168\u91CF\u72B6\u6001\u7B80\u6D01\u56DE\u7B54\uFF0C\u4E0D\u63A8\u65F6\u95F4\u3002";
-var CONFRONTATION_BATTLE_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u6218\u6597\u63A8\u6F14\u8005\u3002\u73A9\u5BB6\u9677\u51B2\u7A81\uFF0C\u9700\u4EE5\u5168\u91CF\u72B6\u6001\u5BA2\u89C2\u63A8\u6F14\u80DC/\u9003\uFF0C\u6B7B\u4E86\u5FC5\u6B7B\u3002\u8981\u6C42\uFF1A\u7ED3\u5408\u5DF2\u4E60\u672F\u6CD5\u63CF\u8FF0\uFF0C\u7B80\u7EC3\u7B2C\u4E8C\u4EBA\u79F0\uFF0C\u52A3\u52BF\u53EF\u9003\u6216\u6B7B\uFF0C\u6B7B\u5FC5\u6B7B\u3002";
-var REVIEW_STARTER_COMBINED_SYSTEM = "\u4F60\u662F\u4FEE\u4ED9\u5C0F\u8BF4\u8D44\u6E90\u8BC4\u5BA1\u3002\u540C\u5BA1\u51FA\u8EAB\u4E0E\u5929\u8D44\u5409\u51F6\u5206\u5E03\uFF0C80\u53CA\u683C\u3002\u53EA\u8F93\u51FA JSON\u3002";
-var ORIGINS_RETRY_SYSTEM = "\u4F60\u662F\u4FEE\u4ED9\u5C0F\u8BF4\u51FA\u8EAB\u8BBE\u8BA1\u8005\u3002\u4E0A\u7248\u88AB\u6253\u56DE\uFF0C\u6309\u53CD\u9988\u91CD\u5199 2-4 \u51FA\u8EAB\uFF0C\u4FDD\u6301\u4E16\u754C\u89C2\u4E00\u81F4\u3002";
-var TALENTS_RETRY_SYSTEM = "\u4F60\u662F\u4FEE\u4ED9\u5C0F\u8BF4\u5929\u8D44\u8BBE\u8BA1\u8005\u3002\u4E0A\u7248\u88AB\u6253\u56DE\uFF0C\u91CD\u5199 9 \u5929\u8D44 6\u54093\u51F6\u3002";
-function reviewStarterCombinedInput(ctx) {
-  return `origins:
-${JSON.stringify(ctx.data.origins)}
-
-talents:
-${JSON.stringify(ctx.data.talents)}
-
-\u73A9\u5BB6\u521D\u8F93\uFF1A${ctx.input?.text || ""}`;
-}
+var BATTLE_SYSTEM = "\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u6218\u6597\u63A8\u6F14\u8005\u3002\u73A9\u5BB6\u9677\u51B2\u7A81\uFF0C\u9700\u4EE5\u5168\u91CF\u72B6\u6001\u5BA2\u89C2\u63A8\u6F14\u80DC/\u9003\uFF0C\u6B7B\u4E86\u5FC5\u6B7B\u3002\u8981\u6C42\uFF1A\u7ED3\u5408\u5DF2\u4E60\u672F\u6CD5\u63CF\u8FF0\uFF0C\u7B80\u7EC3\u7B2C\u4E8C\u4EBA\u79F0\uFF0C\u52A3\u52BF\u53EF\u9003\u6216\u6B7B\uFF0C\u6B7B\u5FC5\u6B7B\u3002\u3010\u751F\u6B7B\u5224\u5B9A\u3011dead \u4EC5\u5F53\u6218\u6597\u660E\u786E\u5BFC\u81F4\u89D2\u8272\u6B7B\u4EA1\u624D true\uFF08\u6218\u6B7B\u5373\u6B7B\uFF0C\u4E0D\u5F3A\u884C\u6D3B\u4E0B\u6765\uFF09\uFF1Bdelta \u7684 hpDelta \u987B\u4E0E\u53D9\u4E8B\u4E00\u81F4\u3002\u3010\u9009\u9879\u3011\u6218\u6597\u7ED3\u675F\u7ED9 0-3 \u6761\u9009\u9879\u2014\u2014\u6BCF\u6761\u5FC5\u987B\u662F\u73A9\u5BB6\u53EF\u76F4\u63A5\u91C7\u7EB3\u6267\u884C\u7684\u5177\u4F53\u884C\u52A8\uFF08\u7531\u6218\u6597\u7ED3\u679C\u4E0E\u5728\u573A\u5C40\u52BF\u8BF1\u5BFC\uFF0C\u5982\u300C\u8FFD\u51FB\u6E83\u9003\u4E4B\u654C\u300D\u300C\u62D6\u56DE\u5C38\u9996\u641C\u68C0\u6218\u5229\u54C1\u300D\u300C\u56DE\u8425\u7597\u4F24\u300D\uFF09\uFF0C\u7981\u6B62\u7EAF\u60C5\u62A5/\u9884\u544A\u5F0F\u8868\u8FF0\uFF1B\u672A\u7ED3\u675F\u7684\u5927\u4E8B\u4EF6\u53EF\u8BF1\u5BFC\u51FA\u76F8\u5173\u5E94\u5BF9\u884C\u52A8\u4F5C\u4E3A\u63D0\u9192\u3002";
 var REALM_LIST = (() => REALM_ORDER.join("\u3001"))();
 function npcSystem(idx) {
   return `\u4F60\u662F\u300C\u7384\u5E7B\u4FEE\u4ED9\u5C0F\u8BF4\u300D\u4EBA\u53E3\u751F\u6210\u5668\u3002\u57FA\u4E8E\u4E16\u754C\u9AA8\u67B6\u751F\u6210 10 \u4E2A NPC\uFF0C\u4F9B\u73A9\u5BB6\u7ED3\u8BC6\u3002\u6BCF\u4E2A NPC 10 \u4EBA\u4E00\u7EC4\uFF0C\u8F93\u51FA\u7B26\u5408 npcBatchSchema\u3002\u3010\u9636\u5C42\u6BD4\u4F8B\xB7\u94C1\u5F8B\u3011\u6BCF\u6279\u5FC5\u987B\u4E25\u683C\u9075\u5FAA\uFF1A\u51E1\u4EBA 2 \u4EBA + \u4FEE\u58EB 7 \u4EBA + \u5927\u4FEE\u58EB 1 \u4EBA\u3002\u51E1\u4EBA=\u51E1\u4EBA\u5883\u754C\uFF08\u6751\u6C11/\u51E1\u4EBA\u6563\u4FEE/\u51E1\u4EBA\u8EAB\u4EFD\uFF09\uFF1B\u4FEE\u58EB=\u7EC3\u6C14/\u7B51\u57FA/\u91D1\u4E39\u5883\u754C\uFF08\u5F1F\u5B50/\u6267\u4E8B/\u957F\u8001/\u6563\u4FEE\uFF09\uFF1B\u5927\u4FEE\u58EB=\u5143\u5A74/\u5316\u795E\u5883\u754C\uFF08\u5B97\u95E8\u8001\u7956/\u5927\u80FD/\u4E00\u65B9\u9738\u4E3B\uFF09\u3002\u8981\u6C42\uFF1A\u540D\u5B57\u7981\u4E0E\u5B97\u95E8\u5730\u57DF\u91CD\u540D\uFF0Crealm \u5FC5\u987B\u4E3A\u539F\u8BCD\u4E0D\u52A0\u540E\u7F00\uFF1B\u8EAB\u4EFD\u4E0E\u5883\u754C\u76F8\u79F0\uFF08\u91D1\u4E39\u957F\u8001\u3001\u5143\u5A74\u8001\u7956\uFF09\u3002` + (idx > 1 ? `\u3010\u7981\u6B62\u91CD\u540D\u3011\u672C\u6279\u4E0D\u5F97\u7528\u524D ${idx - 1} \u6279\u5DF2\u6709\u540D\u5B57\u3002` : "");
@@ -1260,6 +1164,19 @@ ${JSON.stringify({ name: world.name, regions: world.regions, sects: world.sects?
 // src/flows/schemas.ts
 var AFFINITY_SCHEMA = { type: "integer", minimum: 0, maximum: AFFINITY_MAX, description: "\u521D\u59CB\u597D\u611F 0-100\uFF0C0-9\u51B7\u6DE1 10-29\u76F8\u8BC6 30-49\u53CB\u597D 50-69\u4EB2\u5BC6 70-89\u7231\u6155 90-100\u631A\u7231" };
 var AFFINITY_DELTA_SCHEMA = { type: "integer", minimum: -20, maximum: 20, description: "\u597D\u611F\u53D8\u5316\u589E\u91CF -20~20\uFF0C\u914D\u5408 reason \u8BF4\u660E\u539F\u56E0" };
+var HINT_OPTIONS_SCHEMA = {
+  type: "array",
+  maxItems: 3,
+  description: "\u672C\u56DE\u5408\u7ED3\u675F\u540E\u7684\u53EF\u9009\u884C\u52A8\uFF0C\u6700\u591A 3 \u6761\u3001\u53EF\u4E3A 0 \u6761\u3002\u6BCF\u6761\u5FC5\u987B\u662F\u73A9\u5BB6\u53EF\u76F4\u63A5\u91C7\u7EB3\u6267\u884C\u7684\u5177\u4F53\u884C\u52A8\uFF08\u7B2C\u4E00\u4EBA\u79F0\u53EF\u6267\u884C\u53E5\uFF0C\u5982\u300C\u6697\u4E2D\u8C03\u67E5\u574A\u5E02\u5931\u8E2A\u6848\u300D\u300C\u9080\u67F3\u5E08\u59D0\u540E\u5C71\u8BBA\u9053\u300D\u300C\u8FFD\u51FB\u6E83\u9003\u4E4B\u654C\u300D\uFF09\uFF0C\u7531\u4E24\u7C7B\u94A9\u5B50\u8BF1\u5BFC\u751F\u6210\uFF1A\u2460\u8FDB\u884C\u4E2D/\u5C06\u5230\u6765\u7684\u5927\u4E8B\u4EF6\uFF08event\uFF09\u2461\u5728\u573A/\u76F8\u5173 NPC \u7684\u5173\u7CFB\u63A8\u8FDB\uFF08npc\uFF09\u3002\u7981\u6B62\u7EAF\u60C5\u62A5/\u9884\u544A\u5F0F\u8868\u8FF0\uFF08\u90A3\u662F\u4FE1\u606F\u4E0D\u662F\u884C\u52A8\uFF09\uFF1B\u884C\u52A8\u987B\u4E0E\u73A9\u5BB6\u5F53\u524D\u5883\u754C/\u5904\u5883/\u8BA4\u77E5\u76F8\u79F0",
+  items: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "\u5177\u4F53\u884C\u52A8\u53E5 \u226420 \u5B57\uFF08\u73A9\u5BB6\u53EF\u76F4\u63A5\u91C7\u7EB3\u6267\u884C\uFF09" },
+      kind: { type: "string", enum: ["event", "npc"], description: "event=\u7531\u5927\u4E8B\u4EF6\u8BF1\u5BFC\u7684\u884C\u52A8 / npc=\u7531 NPC \u5173\u7CFB\u8BF1\u5BFC\u7684\u884C\u52A8" }
+    },
+    required: ["text", "kind"]
+  }
+};
 var TECHNIQUE_SCHEMA = {
   type: "object",
   properties: {
@@ -1444,10 +1361,9 @@ var npcBatchSchema = (key) => ({
           realm: { type: "string", enum: [...REALM_ORDER], description: "\u5883\u754C\uFF1A\u51E1\u4EBA=\u51E1\u4EBA\uFF1B\u4FEE\u58EB=\u7EC3\u6C14/\u7B51\u57FA/\u91D1\u4E39\uFF1B\u5927\u4FEE\u58EB=\u5143\u5A74/\u5316\u795E\u3002\u987B\u4E3A\u539F\u8BCD\uFF0C\u5BF9\u5E94\u5BFF\u5143\u51E1\u4EBA80/\u7EC3\u6C14120/\u7B51\u57FA200/\u91D1\u4E39300/\u5143\u5A74500/\u5316\u795E800" },
           location: { type: "string", minLength: 1, description: "\u6240\u5728\u5730\u57DF/\u57CE\u9547\uFF0C\u987B\u4E3A\u4E16\u754C\u5DF2\u6709" },
           temperament: { type: "string", description: "\u6027\u60C5/\u6027\u683C" },
-          affinity: { ...AFFINITY_SCHEMA, description: "\u5BF9\u964C\u751F\u4EBA\u521D\u59CB\u597D\u611F 0-100\uFF0C0-9\u51B7\u6DE1 10-29\u76F8\u8BC6 30-49\u53CB\u597D 50-69\u4EB2\u5BC6 70-89\u7231\u6155 90-100\u631A\u7231" },
           note: { type: "string", description: "\u4E00\u53E5\u8BDD\u6863\u6848" }
         },
-        required: ["name", "gender", "identity", "realm", "location", "temperament", "affinity"]
+        required: ["name", "gender", "identity", "realm", "location", "temperament"]
       }
     }
   },
@@ -1531,129 +1447,69 @@ var SWITCH_MAIN_SCHEMA = {
 var TURN_SCHEMA = {
   type: "object",
   properties: {
-    text: { type: "string", minLength: 1, description: "\u672C\u56DE\u5408\u53D9\u4E8B\u6B63\u6587\uFF0C\u7B2C\u4E8C\u4EBA\u79F0\u77ED\u800C\u6709\u529B" },
-    kind: { type: "string", enum: ["\u65E5\u5E38", "\u673A\u9047", "\u5371\u673A", "\u8F6C\u6298", "\u9AD8\u6F6E"], description: "\u8282\u62CD\u7C7B\u578B\uFF0C\u673A\u9047/\u5371\u673A/\u8F6C\u6298/\u9AD8\u6F6E\u5FC5\u987B\u5E26 eventRef" },
+    text: { type: "string", minLength: 1, description: "\u672C\u56DE\u5408\u5267\u60C5\u53D9\u4E8B\uFF0C\u7B2C\u4E8C\u4EBA\u79F0\u63A8\u8FDB" },
+    kind: { type: "string", enum: ["\u65E5\u5E38", "\u673A\u7F18", "\u5371\u673A", "\u8F6C\u6298", "\u9AD8\u5149"], description: "\u5267\u60C5\u7C7B\u578B\uFF08\u673A\u7F18/\u5371\u673A/\u8F6C\u6298/\u9AD8\u5149\u9700\u914D eventRef\uFF09" },
     eventRef: EVENT_REF_SCHEMA,
     delta: DELTA_SCHEMA,
-    relationships: { type: "array", items: RELATIONSHIP_ITEM_SCHEMA, description: "\u597D\u611F\u53D8\u5316\u5217\u8868\uFF0C\u5355\u8F6E1-2\u4EBA" },
+    relationships: { type: "array", items: RELATIONSHIP_ITEM_SCHEMA, description: "\u597D\u611F\u53D8\u5316\u5217\u8868\uFF08\u6311 1-2 \u6761\uFF09" },
     romance: ROMANCE_SCHEMA,
     cultivate: CULTIVATE_SCHEMA,
     switchMain: SWITCH_MAIN_SCHEMA,
-    breakthrough: { type: "boolean", description: '\u662F\u5426\u7A81\u7834\uFF1A\u73A9\u5BB6\u8BF4"\u7A81\u7834/\u51B2\u51FBX\u5C42/\u51B2\u51FB\u74F6\u9888/\u51B2\u51FB\u4E0B\u4E00\u5883"\u4E14\u4FEE\u4E3A\u5DF2\u8FBE\u5F53\u524D\u5883\u754C\u4E0A\u9650\uFF08\u72B6\u6001 stats.cap\uFF09\u65F6**\u5FC5\u987B\u586B true**\uFF08\u89E6\u53D1\u7CFB\u7EDF\u7A81\u7834\u5224\u5B9A\uFF09\uFF1B\u4FEE\u4E3A\u672A\u6EE1\u65F6\u586B false \u5E76\u6539\u4E3A\u4FEE\u70BC' },
-    location: { type: "string", description: '\u73A9\u5BB6\u672C\u56DE\u5408\u79FB\u52A8\u5230\u7684\u4F4D\u7F6E\uFF08\u987B\u4E3A\u4E16\u754C\u5DF2\u6709\u5730\u57DF/\u57CE\u9547\uFF0C\u5982"\u9752\u4E91\u57CE"\uFF09\u3002\u4F4D\u7F6E\u8DDF\u968F\u5267\u60C5\u8D70\uFF1A\u73A9\u5BB6\u884C\u52A8\u6D89\u53CA\u8D76\u8DEF/\u79BB\u5F00/\u5230\u8FBE\u65F6\u5FC5\u586B\uFF1B\u539F\u5730\u505C\u7559\uFF08\u4FEE\u70BC/\u95ED\u5173/\u5BF9\u8BDD\uFF09\u7701\u7565\u3002\u79FB\u52A8\u540E"\u9644\u8FD1\u7684\u4EBA"\u968F\u4E4B\u53D8\u5316' },
+    location: { type: "string", description: "\u73A9\u5BB6\u672C\u56DE\u5408\u79FB\u52A8\u540E\u7684\u4F4D\u7F6E\uFF1B\u9ED8\u8BA4\u4FDD\u6301\uFF08\u8F93\u51FA\u539F\u503C\uFF09\uFF1B\u4F4D\u7F6E\u66F4\u65B0\u6761\u4EF6\u89C1 npcMoves \u8BF4\u660E" },
     npcMoves: {
       type: "array",
-      description: 'NPC \u4F4D\u7F6E\u53D8\u66F4\u5217\u8868\u3002**\u94C1\u5F8B\uFF1A\u5267\u60C5\u4E2D\u4EFB\u4F55 NPC \u51FA\u73B0\u5728\u73A9\u5BB6\u6240\u5728\u5730\uFF08\u5BF9\u8BDD/\u540C\u884C/\u76F8\u9047/\u5728\u573A\uFF09\uFF0C\u5FC5\u987B\u5728\u6B64\u58F0\u660E\u8BE5 NPC \u79FB\u52A8\u5230\u73A9\u5BB6\u5F53\u524D\u4F4D\u7F6E\uFF1BNPC \u79BB\u5F00\u5219\u79FB\u5230\u522B\u5904**\u3002location \u5FC5\u987B\u662F\u73A9\u5BB6\u5F53\u524D\u6240\u5728\u57CE\u9547\uFF08\u72B6\u6001 stats.location\uFF09\u6216\u4E16\u754C\u9AA8\u67B6\u7684\u5730\u57DF/\u57CE\u9547\uFF0C**\u7981\u6B62\u586B\u5267\u60C5\u5185\u7684\u5C0F\u5730\u70B9**\uFF08\u5982"\u8336\u697C/\u5C71\u6D1E/\u5BC6\u6797"\u8FD9\u7C7B\u8BB0\u53D9\u5730\u70B9\u2014\u2014\u5B83\u4EEC\u4E0D\u662F\u4F4D\u7F6E\uFF0CNPC \u4F4D\u7F6E\u53EA\u8BA4\u57CE\u9547/\u5730\u57DF\uFF09\u3002\u65E0 NPC \u51FA\u573A/\u79FB\u52A8\u65F6\u7701\u7565',
+      description: "NPC \u4F4D\u7F6E\u53D8\u66F4\u5217\u8868\u3002\u94C1\u5F8B\uFF1A\u4E0D\u8981\u8BA9\u4EFB\u4F55 NPC \u65E0\u6545\u77AC\u79FB\u5230\u73A9\u5BB6\u6240\u5728\u5730\uFF0C NPCs \u79BB\u5F00\u5219\u79FB\u5230\u522B\u5904",
       items: {
         type: "object",
         properties: {
-          npc: { type: "string", minLength: 1, description: "NPC \u540D\uFF0C\u987B\u4E3A\u5F53\u524D\u72B6\u6001 characters \u4E2D\u5DF2\u6709" },
-          location: { type: "string", minLength: 1, description: "\u8BE5 NPC \u79FB\u52A8\u5230\u7684\u4F4D\u7F6E\uFF1A\u73A9\u5BB6\u5F53\u524D\u6240\u5728\u57CE\u9547\uFF08\u72B6\u6001 stats.location\uFF09\u6216\u4E16\u754C\u9AA8\u67B6\u5730\u57DF/\u57CE\u9547\uFF0C\u7981\u6B62\u5267\u60C5\u5185\u5C0F\u5730\u70B9" },
-          reason: { type: "string", description: "\u79FB\u52A8\u539F\u56E0\uFF08\u53C2\u8003 NPC \u4E2A\u4EBA\u80CC\u666F\u3001\u4E0E\u73A9\u5BB6\u597D\u611F\u3001\u5927\u4E8B\u4EF6\u7B49\uFF0C\u4E00\u53E5\u8BDD\uFF09" }
+          npc: { type: "string", minLength: 1, description: "NPC \u540D\uFF08\u987B\u4E3A\u5F53\u524D\u72B6\u6001 characters \u4E2D\u8005\uFF09" },
+          location: { type: "string", minLength: 1, description: "\u8BE5 NPC \u79FB\u52A8\u5230\u7684\u4F4D\u7F6E\uFF08\u4E0E\u73A9\u5BB6\u5F53\u524D\u6240\u5728\u5730\u540C\u6846\u67B6\u7684\u57CE/\u5730\u533A\uFF09" },
+          reason: { type: "string", description: "\u79FB\u52A8\u539F\u56E0\uFF0C\u4E00\u53E5\u8BDD" }
         },
         required: ["npc", "location"]
       }
     },
     npcChanges: {
       type: "array",
-      description: "\u672C\u56DE\u5408 NPC \u5883\u754C\u53D8\u5316\u5217\u8868\uFF08\u5267\u60C5\u9A71\u52A8\u7684\u4FEE\u4E3A\u7A81\u7834\uFF0C\u5982 NPC \u7A81\u7834\u3001\u5883\u754C\u8DCC\u843D\uFF09\u3002\u901A\u5E38\u7701\u7565\uFF0C\u4EC5\u5F53\u5267\u60C5\u660E\u786E\u6D89\u53CA NPC \u5883\u754C\u53D8\u5316\u65F6\u586B",
+      description: "\u672C\u56DE\u5408 NPC \u5883\u754C\u53D8\u5316\u5217\u8868\uFF08\u5BFB\u5E38\u7701\u7565\uFF09",
       items: {
         type: "object",
         properties: {
-          npc: { type: "string", minLength: 1, description: "NPC \u540D\uFF0C\u987B\u4E3A\u5F53\u524D\u72B6\u6001 characters \u4E2D\u5DF2\u6709" },
-          realm: { type: "string", enum: [...REALM_ORDER], description: "\u8BE5 NPC \u53D8\u5316\u540E\u7684\u5883\u754C\uFF08\u987B\u4E3A\u539F\u8BCD\uFF09" },
-          reason: { type: "string", minLength: 1, description: "\u53D8\u5316\u539F\u56E0\uFF08\u5982\u7A81\u7834/\u8D70\u706B\u5165\u9B54/\u8DCC\u843D\uFF0C\u7ED3\u5408 NPC \u4E2A\u4EBA\u80CC\u666F\u3001\u5267\u60C5\u63A8\u8FDB\uFF0C\u4E00\u53E5\u8BDD\uFF09" }
+          npc: { type: "string", minLength: 1, description: "NPC \u540D\uFF08\u987B\u4E3A\u5F53\u524D\u72B6\u6001 characters \u4E2D\u8005\uFF09" },
+          realm: { type: "string", enum: [...REALM_ORDER], description: "\u8BE5 NPC \u53D8\u5316\u540E\u7684\u5883\u754C" },
+          reason: { type: "string", minLength: 1, description: "\u53D8\u5316\u539F\u56E0\u4E00\u53E5\u8BDD" }
         },
         required: ["npc", "realm", "reason"]
       }
     },
-    timeCost: { type: "number", description: "\u672C\u56DE\u5408\u63A8\u52A8\u51E0\u6708\uFF0C0\u4E0D\u63A8\u65F6\u95F4\uFF0C1-\u6570\u5341\u6708\u81EA\u5B9A" },
-    options: {
-      type: "array",
-      minItems: 4,
-      maxItems: 4,
-      description: "\u672C\u56DE\u5408\u7ED3\u675F\u540E\u7684 4 \u4E2A\u4E0B\u8F6E\u9009\u9879\uFF08\u73A9\u5BB6\u5B58\u6D3B\u65F6\u5FC5\u586B\uFF1B\u8EAB\u6B7B\u9053\u6D88\u65F6\u7701\u7565\uFF09\u3002\u9009\u9879\u5FC5\u987B\u4E0E\u7384\u5E7B\u4E16\u754C\u89C4\u5219\u548C\u73A9\u5BB6\u5904\u5883\u81EA\u6D3D\uFF1A\u5B9E\u529B\u5339\u914D\uFF08\u5883\u754C\u538B\u5236\u662F\u94C1\u5F8B\uFF09\u3001\u5173\u7CFB\u8303\u56F4\uFF08\u53EA\u4EA4\u4E92\u5728\u573A\u6216\u6709\u5173\u7CFB NPC\uFF09\u3001\u8BA4\u77E5\u8303\u56F4\uFF08\u4E0D\u5F15\u5165\u672A\u51FA\u73B0\u7684\u4EBA\u7269\u5730\u70B9\uFF09",
-      items: {
-        type: "object",
-        properties: {
-          text: { type: "string", description: "\u9009\u9879\u6587\u672C\u226420\u5B57" },
-          risk: { type: "string", enum: ["\u65E0", "\u4F4E", "\u4E2D", "\u9AD8"], description: "\u98CE\u9669\u7B49\u7EA7" },
-          branches: {
-            type: "array",
-            minItems: 2,
-            maxItems: 3,
-            description: "\u98CE\u9669\u9879\u9644 2-3 \u4E2A\u5206\u652F\u9884\u544A\uFF08risk \u4E3A\u65E0\u65F6\u53EF\u7701\u7565\uFF09",
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string", description: "\u5206\u652F ID" },
-                title: { type: "string", description: "\u5206\u652F\u6807\u9898\u226412\u5B57" },
-                kind: { type: "string", enum: ["battle", "other"], description: "battle \u6218\u6597/other \u5267\u60C5" },
-                prob: { type: "number", minimum: 0.05, maximum: 0.95, description: "\u6982\u7387 0.05-0.95" },
-                simpleDesc: { type: "string", description: "\u7B80\u7565\u8D70\u5411\u226430\u5B57" },
-                requiresTechnique: { type: "string", description: "\u9700\u5DF2\u4E60\u5F97\u672F\u6CD5\u540D\uFF1A\u5FC5\u987B\u9010\u5B57\u53D6\u81EA\u73A9\u5BB6\u5DF2\u4E60\u529F\u6CD5\uFF08\u5F53\u524D\u72B6\u6001 methods \u7684 techniques\uFF09\u4E2D\u7684\u672F\u6CD5\u540D\uFF0C\u7981\u6B62\u5F15\u7528 NPC/\u4ED6\u4EBA\u7684\u672F\u6CD5" }
-              },
-              required: ["id", "title", "kind", "prob", "simpleDesc"]
-            }
-          }
-        },
-        required: ["text", "risk"]
-      }
-    }
+    timeCost: { type: "number", description: "\u672C\u56DE\u5408\u63A8\u8FDB\u65F6\u95F4\uFF08\u6708\uFF09\uFF1A0-\u77ED\u65F6\uFF0C1-\u6570\u5341\u6708\u81EA\u5B9A" },
+    dead: { type: "boolean", description: "\u4EC5\u5F53\u672C\u56DE\u5408\u53D9\u4E8B\u660E\u786E\u5BFC\u81F4\u89D2\u8272\u6B7B\u4EA1\uFF08\u5F62\u795E\u4FF1\u706D/\u9668\u843D/\u88AB\u6740\uFF09\u624D\u4E3A true\uFF1B\u9ED8\u8BA4 false\u3002\u6B7B\u4EA1\u65F6 text \u5FC5\u987B\u5199\u51FA\u5B8C\u6574\u7684\u6B7B\u4EA1\u573A\u666F\u4E0E\u7ED3\u5C40" },
+    options: HINT_OPTIONS_SCHEMA
   },
   required: ["text", "kind"],
-  description: "\u4E3B\u56DE\u5408\u63A8\u6F14\uFF08game_turn\uFF09"
-};
-var BRANCH_SCHEMA = {
-  type: "object",
-  properties: {
-    id: { type: "string", description: "\u5206\u652F id" },
-    title: { type: "string", description: "\u5206\u652F\u6807\u9898\u226412\u5B57" },
-    kind: { type: "string", enum: ["battle", "other"], description: "battle \u6218\u6597/other \u5267\u60C5" },
-    prob: { type: "number", minimum: 0.05, maximum: 0.95, description: "\u6982\u7387 0.05-0.95\uFF0C\u548C\u22481" },
-    simpleDesc: { type: "string", description: "\u7B80\u7565\u8D70\u5411\u226430\u5B57" },
-    requiresTechnique: { type: "string", description: "\u9700\u5DF2\u4E60\u5F97\u672F\u6CD5\u540D\uFF1A\u5FC5\u987B\u9010\u5B57\u53D6\u81EA\u73A9\u5BB6\u5DF2\u4E60\u529F\u6CD5\uFF08\u5F53\u524D\u72B6\u6001 methods \u7684 techniques\uFF09\u4E2D\u7684\u672F\u6CD5\u540D\uFF0C\u7981\u6B62\u5F15\u7528 NPC/\u4ED6\u4EBA\u7684\u672F\u6CD5" }
-  },
-  required: ["id", "title", "kind", "prob", "simpleDesc"],
-  description: "\u5355\u6761\u9690\u5F0F\u5206\u652F"
-};
-var CHOICE_OPTION_SCHEMA = {
-  type: "object",
-  properties: {
-    text: { type: "string", description: "\u9009\u9879\u6587\u672C\u226420\u5B57" },
-    risk: { type: "string", enum: ["\u65E0", "\u4F4E", "\u4E2D", "\u9AD8"], description: "\u98CE\u9669\u7B49\u7EA7" },
-    branches: { type: "array", minItems: 2, maxItems: 3, items: BRANCH_SCHEMA, description: "\u98CE\u9669\u9879\u9644 2-3 \u9690\u5F0F\u5206\u652F" }
-  },
-  required: ["text", "risk"],
-  description: "\u5355\u6761\u6289\u62E9"
-};
-var CHOICE_SCHEMA = {
-  type: "object",
-  properties: {
-    options: { type: "array", minItems: 4, maxItems: 4, items: CHOICE_OPTION_SCHEMA, description: "4\u4E2A\u6289\u62E9" }
-  },
-  required: ["options"],
-  description: "\u6289\u62E9\uFF08game_turn \u672B\uFF09"
+  description: "\u672C\u56DE\u5408\u6570\u636E\uFF08game_turn\uFF09"
 };
 var BATTLE_SCHEMA = {
   type: "object",
   properties: {
-    text: { type: "string", minLength: 1, description: "\u6218\u6597\u53D9\u4E8B\u7B2C\u4E8C\u4EBA\u79F0" },
-    dead: { type: "boolean", description: "\u662F\u5426\u8EAB\u6B7B" },
-    delta: DELTA_SCHEMA
+    text: { type: "string", minLength: 1, description: "\u6218\u6597\u53D9\u4E8B\uFF0C\u7B2C\u4E8C\u4EBA\u79F0" },
+    dead: { type: "boolean", description: "\u662F\u5426\u6218\u6B7B\uFF08\u4EC5\u5F53\u6218\u8D25\u5373\u6B7B\u624D true\uFF09" },
+    delta: DELTA_SCHEMA,
+    options: HINT_OPTIONS_SCHEMA
   },
   required: ["text", "dead"],
-  description: "\u6218\u6597\u5B9E\u5199\uFF08confrontation\uFF09"
+  description: "\u6218\u6597\u5B9E\u5199\uFF08game_battle\uFF09"
 };
 var BREAKTHROUGH_SCHEMA = {
   type: "object",
   properties: {
-    text: { type: "string", minLength: 1, description: "\u7A81\u7834\u6587\u6848\uFF0C\u5FC5\u987B\u4E0E\u7CFB\u7EDF\u5224\u5B9A\u7684 success \u4E25\u683C\u4E00\u81F4\uFF1A\u6210\u529F=true \u5199\u7834\u5883\u6210\u529F\u573A\u666F\uFF1B\u6210\u529F=false \u5FC5\u987B\u5199\u7A81\u7834\u5931\u8D25\u573A\u666F\uFF08\u74F6\u9888\u53D7\u963B/\u6C14\u673A\u7D0A\u4E71/\u53CD\u566C\uFF09\uFF0C\u7EDD\u5BF9\u7981\u6B62\u5199\u7A81\u7834\u6210\u529F\u6216\u5883\u754C\u63D0\u5347" },
-    extraCultivation: { type: "number", description: "\u989D\u5916\u4FEE\u4E3A\uFF1A\u6210\u529F\u53EF\u7ED9\u5C11\u91CF\uFF1B\u5931\u8D25\u7ED9\u6781\u5C11\u611F\u609F\u6216\u4E0D\u7ED9" },
-    nextRateBonus: { type: "number", description: "\u4E0B\u6B21\u7A81\u7834\u7387\u52A0\u6210\uFF1A\u6210\u529F\u53EF\u7ED9\uFF1B\u5931\u8D25\u53EF\u7ED9\u5C0F\u5E45\uFF08\u7834\u800C\u540E\u7ACB\uFF09" }
+    text: { type: "string", minLength: 1, description: "\u7A81\u7834\u7684\u5B8C\u6574\u53D9\u4E8B\uFF08\u7CFB\u7EDF\u5224\u5B9A success=true \u5199\u51ED\u673A\u7F18\u6210\u529F\u7A81\u7834\uFF1Bfalse \u5219\u4E25\u7981\u5199\u7A81\u7834\u6210\u529F\u6216\u5883\u754C\u63D0\u5347\uFF0C\u53EA\u5199\u5931\u8D25\u540E\u7684\u72B6\u6001\uFF1A\u7ECF\u8109\u9707\u8361/\u8D70\u706B\u5165\u9B54\u5F81\u5146/\u74F6\u9888\u66F4\u56FA\u7B49\uFF0C\u53EF\u4EE5\u7981\u6B62\u518D\u6B21\u5C1D\u8BD5\u7A81\u7834\uFF09" },
+    extraCultivation: { type: "number", description: "\u7A81\u7834\u7684\u4FEE\u4E3A\u589E\u51CF\uFF1B\u6210\u529F\u53EF\u7ED9\u589E\u76CA\uFF0C\u5931\u8D25\u53EF\u7ED9\u5C0F\u589E\u76CA\u6216\u4E0D\u7ED9" },
+    nextRateBonus: { type: "number", description: "\u4E0B\u6B21\u7A81\u7834\u7387\u52A0\u6210\uFF1B\u6210\u529F\u53EF\u7ED9\u589E\u76CA\uFF0C\u5931\u8D25\u53EF\u7ED9\u5C0F\u8865\u507F" },
+    options: HINT_OPTIONS_SCHEMA
   },
   required: ["text"],
-  description: "\u7A81\u7834\u63A8\u6F14"
+  description: "\u7A81\u7834\u7ED3\u679C"
 };
 var QUERY_SCHEMA = {
   type: "object",
@@ -1679,20 +1535,10 @@ var OPENING_SCHEMA = {
   type: "object",
   properties: {
     text: { type: "string", minLength: 1, description: "\u5F00\u573A\u53D9\u4E8B 200-400\u5B57\u7B2C\u4E8C\u4EBA\u79F0" },
-    options: { type: "array", minItems: 2, maxItems: 4, items: CHOICE_OPTION_SCHEMA, description: "\u5F00\u5C40\u9009\u9879 2-4 \u4E2A" }
+    options: HINT_OPTIONS_SCHEMA
   },
   required: ["text", "options"],
   description: "\u5F00\u573A\u5267\u60C5"
-};
-var REVIEW_SCHEMA = {
-  type: "object",
-  properties: {
-    score: { type: "number", minimum: 0, maximum: 100, description: "\u8BC4\u5206 0-100\uFF0C80\u53CA\u683C" },
-    feedback: { type: "string", minLength: 1, description: "\u53CD\u9988\u5EFA\u8BAE" },
-    pass: { type: "boolean", description: "\u662F\u5426\u901A\u8FC7" }
-  },
-  required: ["score", "feedback", "pass"],
-  description: "\u8BC4\u5BA1\u7ED3\u679C"
 };
 
 // src/flows/character.ts
@@ -1703,9 +1549,7 @@ function characterCreationNodes(rules, views) {
       type: "llm",
       system: CHAR_CREATE_SYSTEM,
       input: (ctx) => {
-        const w = ctx.state._w;
         return `\u73A9\u5BB6\u521D\u8F93\uFF1A${ctx.input?.text || ""}
-\u4E16\u754C\uFF1A${w.stats.world?.name || ""}
 
 \u51FA\u8EAB\u6C60\uFF1A
 ${JSON.stringify(rules.parseOriginPool(ctx.state._w))}
@@ -1717,7 +1561,7 @@ ${JSON.stringify(rules.parseTalentPool(ctx.state._w))}`;
       assign: "charCreate"
     },
     // [static] 落库校验：校验 charCreate 合法性并写入 WorldState（出身/天资/姓名/性别/初始属性） | 无 prompt/schema | 读 charCreate | 规则: rules.applyCharacter
-    { type: "static", fn: rules.applyCharacter },
+    { type: "static", fn: (ctx) => rules.applyCharacter(ctx) ?? void 0 },
     // [llm] 开场剧情生成：基于已落库的 publicState 生成开场文本与 2-4 个初始选项 | prompt: OPENING_SYSTEM | schema: {text, options[{text, risk}]} | assign: opening
     {
       type: "llm",
@@ -1731,7 +1575,7 @@ ${JSON.stringify(rules.publicState(w))}`;
       assign: "opening"
     },
     // [static] 开场校验：校验 opening 文本与选项数/风险等级合法性，写 log 并持久化 | 无 prompt/schema | 读 opening | 规则: rules.validateOpening
-    { type: "static", fn: rules.validateOpening },
+    { type: "static", fn: (ctx) => rules.validateOpening(ctx) ?? void 0 },
     // [render] 首屏渲染：调用 views.buildFirstScreen 将开场剧情与选项渲染为首屏 | 无 prompt/schema/assign | 依赖 opening 已校验
     { type: "render", build: views.buildFirstScreen }
   ];
@@ -1750,7 +1594,7 @@ function worldGenNodes(rules) {
       assign: "worldBase"
     },
     // [static] 世界骨架落库：校验 worldBase 并写入 WorldState，失败则阻断 | 无 prompt/schema | 读 worldBase | 规则: rules.applyWorldBase
-    { type: "static", fn: rules.applyWorldBase },
+    { type: "static", fn: (ctx) => rules.applyWorldBase(ctx) ?? void 0 },
     // [llm] 出身池生成：基于世界名+玩家初输生成 2-4 个出身（NPC 池由独立工具 generate_npcs 生成） | prompt: ORIGINS_SYSTEM | schema: ORIGINS_SCHEMA | assign: origins
     {
       type: "llm",
@@ -1767,66 +1611,8 @@ function worldGenNodes(rules) {
       schema: ORIGINS_SCHEMA,
       assign: "origins"
     },
-    // [static] 出身初次校验：调用 rules.applyOrigins，失败且未重试则暂存 originsError 待 condition 重试 | 无 prompt/schema | 读 origins | 规则: rules.applyOrigins
-    {
-      type: "static",
-      fn: (ctx) => {
-        const err = rules.applyOrigins(ctx);
-        if (err) {
-          if (!ctx.data.originsRetried) {
-            ;
-            ctx.data.originsError = err;
-            return;
-          }
-          return err;
-        }
-        delete ctx.data.originsError;
-      }
-    },
-    // [condition] 出身重试分支：当 originsError 存在且未重试时进入重试子链
-    {
-      type: "condition",
-      when: (ctx) => !!ctx.data.originsError && !ctx.data.originsRetried,
-      then: [
-        // [static] 标记重试：置 originsRetried=true | 无 prompt/schema
-        {
-          type: "static",
-          fn: (ctx) => {
-            ;
-            ctx.data.originsRetried = true;
-            return;
-          }
-        },
-        // [llm] 出身重试生成：携带上次校验失败反馈重写出身，约束灵石 0-50 | prompt: ORIGINS_RETRY_SYSTEM | schema: ORIGINS_SCHEMA | assign: origins（覆盖）
-        {
-          type: "llm",
-          system: ORIGINS_RETRY_SYSTEM,
-          input: (ctx) => {
-            const w = ctx.state._w.stats;
-            const wish = ctx.input?.text?.trim() ? `\u73A9\u5BB6\u521D\u8F93\uFF1A${ctx.input.text}
-` : "";
-            const fb = ctx.data.originsError || "";
-            return `${wish}\u4E16\u754C\uFF1A${w.world?.name || ""}
-\u5730\u57DF\uFF1A${(w.world?.regions || []).join("\u3001")}
-\u57CE\u9547\uFF1A${(w.world?.towns || []).map((t) => t.name).join("\u3001")}
-\u4E0A\u6B21\u6821\u9A8C\u5931\u8D25\uFF1A${fb}
-\u8BF7\u4FEE\u6B63\u540E\u91CD\u5199\u51FA\u8EAB\uFF08\u521D\u59CB\u7075\u77F3 0-50\uFF0C\u4F4E\u9636\u51FA\u8EAB\u52FF\u8D85 50\uFF09\u3002`;
-          },
-          schema: ORIGINS_SCHEMA,
-          assign: "origins"
-        },
-        // [static] 出身重试校验落库：再次调用 rules.applyOrigins，失败直接阻断 | 读 origins | 规则: rules.applyOrigins
-        {
-          type: "static",
-          fn: (ctx) => {
-            const err = rules.applyOrigins(ctx);
-            if (err) return err;
-            delete ctx.data.originsError;
-          }
-        }
-      ],
-      else: []
-    },
+    // [static] 出身池落库：校验 worldBase 并写入 originPool，失败直接阻断（调度器级失败重试兜底） | 读 origins | 规则: rules.applyOrigins
+    { type: "static", fn: (ctx) => rules.applyOrigins(ctx) ?? void 0 },
     // [llm] 天资池生成：基于世界名+出身池+玩家初输生成 9 条天资（6吉3凶） | prompt: TALENTS_SYSTEM | schema: TALENTS_SCHEMA | assign: talents
     {
       type: "llm",
@@ -1843,137 +1629,10 @@ function worldGenNodes(rules) {
       schema: TALENTS_SCHEMA,
       assign: "talents"
     },
-    // [static] 天资初次校验：调用 rules.applyTalents，失败且未重试则暂存 talentsError | 无 prompt/schema | 读 talents | 规则: rules.applyTalents
-    {
-      type: "static",
-      fn: (ctx) => {
-        const err = rules.applyTalents(ctx);
-        if (err) {
-          if (!ctx.data.talentsRetried) {
-            ;
-            ctx.data.talentsError = err;
-            return;
-          }
-          return err;
-        }
-        delete ctx.data.talentsError;
-      }
-    },
-    // [condition] 天资重试分支：当 talentsError 存在且未重试时进入重试子链
-    {
-      type: "condition",
-      when: (ctx) => !!ctx.data.talentsError && !ctx.data.talentsRetried,
-      then: [
-        // [static] 标记重试：置 talentsRetried=true | 无 prompt/schema
-        {
-          type: "static",
-          fn: (ctx) => {
-            ;
-            ctx.data.talentsRetried = true;
-            return;
-          }
-        },
-        // [llm] 天资重试生成：携带校验失败反馈重写天资，约束灵石 0-50 | prompt: TALENTS_RETRY_SYSTEM | schema: TALENTS_SCHEMA | assign: talents（覆盖）
-        {
-          type: "llm",
-          system: TALENTS_RETRY_SYSTEM,
-          input: (ctx) => {
-            const w = ctx.state._w.stats;
-            const origins = rules.parseOriginPool(ctx.state._w).map((o) => o.name);
-            const wish = ctx.input?.text?.trim() ? `\u73A9\u5BB6\u521D\u8F93\uFF1A${ctx.input.text}
-` : "";
-            const fb = ctx.data.talentsError || "";
-            return `${wish}\u4E16\u754C\uFF1A${w.world?.name || ""}
-\u51FA\u8EAB\u6C60\uFF1A${JSON.stringify(origins)}
-\u4E0A\u6B21\u6821\u9A8C\u5931\u8D25\uFF1A${fb}
-\u8BF7\u4FEE\u6B63\u540E\u91CD\u5199\u5929\u8D44\uFF08\u521D\u59CB\u7075\u77F3 0-50\uFF09\u3002`;
-          },
-          schema: TALENTS_SCHEMA,
-          assign: "talents"
-        },
-        // [static] 天资重试校验落库：再次调用 rules.applyTalents | 读 talents | 规则: rules.applyTalents
-        {
-          type: "static",
-          fn: (ctx) => {
-            const err = rules.applyTalents(ctx);
-            if (err) return err;
-            delete ctx.data.talentsError;
-          }
-        }
-      ],
-      else: []
-    },
-    // 合审 origins+talents 一次（80分阈值）
-    // [llm] Starter 合审：对出身+天资做 80 分阈值评审，输出 score/feedback/pass | prompt: REVIEW_STARTER_COMBINED_SYSTEM | input: reviewStarterCombinedInput | schema: {score, feedback, pass} | assign: reviewStarterCombined
-    {
-      type: "llm",
-      system: REVIEW_STARTER_COMBINED_SYSTEM,
-      input: reviewStarterCombinedInput,
-      schema: REVIEW_SCHEMA,
-      assign: "reviewStarterCombined"
-    },
-    // [condition] 合审未通过重写分支：score<80 && pass===false 且未重试时，整体重写出身与天资
-    {
-      type: "condition",
-      when: (ctx) => {
-        const r = ctx.data.reviewStarterCombined;
-        return (r?.score ?? 100) < 80 && r?.pass === false && !ctx.data.starterRetried;
-      },
-      then: [
-        // [static] 标记合审重试：置 starterRetried=true 并保存 feedback 到 starterFeedback | 无 prompt/schema | 读 reviewStarterCombined
-        {
-          type: "static",
-          fn: (ctx) => {
-            const r = ctx.data.reviewStarterCombined;
-            ctx.data.starterRetried = true;
-            ctx.data.starterFeedback = r?.feedback || "";
-            return;
-          }
-        },
-        // [llm] 出身合审重写：携带评审反馈重写出身 | prompt: ORIGINS_RETRY_SYSTEM | schema: ORIGINS_SCHEMA | assign: origins
-        {
-          type: "llm",
-          system: ORIGINS_RETRY_SYSTEM,
-          input: (ctx) => {
-            const w = ctx.state._w.stats;
-            const fb = ctx.data.starterFeedback || "";
-            const wish = ctx.input?.text?.trim() ? `\u73A9\u5BB6\u521D\u8F93\uFF1A${ctx.input.text}
-` : "";
-            const towns = Array.isArray(w.world?.towns) ? w.world.towns.map((t) => t.name) : [];
-            return `${wish}\u4E16\u754C\uFF1A${w.world?.name || ""}
-\u5730\u57DF\uFF1A${(w.world?.regions || []).join("\u3001")}
-\u57CE\u9547\uFF1A${towns.join("\u3001")}
-\u8BC4\u5BA1\u53CD\u9988\uFF1A${fb}
-\u8BF7\u91CD\u5199\u51FA\u8EAB\u3002`;
-          },
-          schema: ORIGINS_SCHEMA,
-          assign: "origins"
-        },
-        // [static] 出身重写落库：校验并写入 | 读 origins | 规则: rules.applyOrigins
-        { type: "static", fn: rules.applyOrigins },
-        // [llm] 天资合审重写：携带评审反馈重写天资 | prompt: TALENTS_RETRY_SYSTEM | schema: TALENTS_SCHEMA | assign: talents
-        {
-          type: "llm",
-          system: TALENTS_RETRY_SYSTEM,
-          input: (ctx) => {
-            const w = ctx.state._w.stats;
-            const origins = rules.parseOriginPool(ctx.state._w).map((o) => o.name);
-            const fb = ctx.data.starterFeedback || "";
-            const wish = ctx.input?.text?.trim() ? `\u73A9\u5BB6\u521D\u8F93\uFF1A${ctx.input.text}
-` : "";
-            return `${wish}\u4E16\u754C\uFF1A${w.world?.name || ""}
-\u51FA\u8EAB\u6C60\uFF1A${JSON.stringify(origins)}
-\u8BC4\u5BA1\u53CD\u9988\uFF1A${fb}
-\u8BF7\u91CD\u5199\u5929\u8D44\u3002`;
-          },
-          schema: TALENTS_SCHEMA,
-          assign: "talents"
-        },
-        // [static] 天资重写落库：校验并写入 | 读 talents | 规则: rules.applyTalents
-        { type: "static", fn: rules.applyTalents }
-      ],
-      else: []
-    }
+    // [static] 天资池落库：校验并写入 talentPool，失败直接阻断（调度器级失败重试兜底） | 读 talents | 规则: rules.applyTalents
+    { type: "static", fn: (ctx) => rules.applyTalents(ctx) ?? void 0 }
+    // 合审评审链与合规重试分支均已移除（v0.6.0）：评审触发率低、耗时且结构臃肿；失败走调度器级兜底
+    // 0.7.0 目标：flow 节点原生支持自我评审（reviewPrompt 属性 + maxRetries 重试次数）
   ];
 }
 function registerGameFlows(api, ledger, rules, views) {
@@ -2008,7 +1667,7 @@ function registerGameFlows(api, ledger, rules, views) {
         };
       }),
       // [static] NPC 池合并落库：三批去重后追加进 WorldState.characters | 读 npcBatch1..3 | 规则: rules.applyNpcPool
-      { type: "static", fn: rules.applyNpcPool }
+      { type: "static", fn: (ctx) => rules.applyNpcPool(ctx) ?? void 0 }
     ],
     requireRender: false
   });
@@ -2037,228 +1696,125 @@ function registerGameFlows(api, ledger, rules, views) {
 }
 
 // src/flows/turn.ts
+function frontCheck(ctx) {
+  const w = ctx.state._w;
+  if (!w.meta.created) return "\u89D2\u8272\u672A\u521B\u5EFA\uFF0C\u8BF7\u5148\u521B\u5EFA\u89D2\u8272";
+  if (w.meta.dead) return "\u89D2\u8272\u5DF2\u6B7B\u4EA1\uFF0C\u672C\u8F6E\u7A7A\u8F6C";
+  return;
+}
 function registerTurnFlows(api, ledger, rules, views) {
   api.flow.register({
     name: "game_turn",
     nodes: [
-      // [static] 上下文初始化：加载 ledger 世界到 ctx.state._w | 规则: initCtx(ledger)
       { type: "static", fn: initCtx(ledger) },
-      // [static] 前置校验：检查 meta.created/meta.dead，未建角或已死亡则阻断流程 | 无 prompt/schema | 读 w.meta
+      { type: "static", fn: frontCheck },
       {
-        type: "static",
-        fn: (ctx) => {
+        type: "llm",
+        system: TURN_SYSTEM,
+        input: (ctx) => {
           const w = ctx.state._w;
-          if (!w.meta.created) return "\u89D2\u8272\u672A\u521B\u5EFA\uFF0C\u8BF7\u5148\u521B\u5EFA\u89D2\u8272";
-          if (w.meta.dead) return "\u5DF2\u8EAB\u6B7B\u9053\u6D88\uFF0C\u8BF7\u91CD\u5F00";
-          return;
-        }
+          return `\u73A9\u5BB6\u884C\u52A8\uFF1A${ctx.input?.text || "\uFF08\u65E0\uFF09"}
+
+\u5F53\u524D\u72B6\u6001\uFF1A
+${JSON.stringify(rules.publicState(w))}`;
+        },
+        schema: TURN_SCHEMA,
+        assign: "turn"
       },
-      // [static] 分支抽检：解析玩家输入匹配 pendingBranch，命中则写入 branchPick 并 saveAll | 无 prompt/schema | 读 ctx.input.text | 规则: consumePendingBranch | 写 ctx.data.branchPick
+      { type: "static", fn: (ctx) => rules.applyTurn(ctx) ?? void 0 },
+      { type: "render", build: views.buildPlayScreen }
+    ],
+    requireRender: true
+  });
+  api.flow.register({
+    name: "game_battle",
+    nodes: [
+      { type: "static", fn: initCtx(ledger) },
+      { type: "static", fn: frontCheck },
       {
-        type: "static",
-        fn: (ctx) => {
+        type: "llm",
+        system: BATTLE_SYSTEM,
+        input: (ctx) => {
           const w = ctx.state._w;
-          const inputText = ctx.input?.text || "";
-          const pick = consumePendingBranch(inputText, w);
-          if (pick) {
-            ;
-            ctx.data.branchPick = pick;
-            ledger.saveAll();
-          }
-          return;
-        }
-      },
-      // [condition] 战斗分支分流：当 branchPick.kind === 'battle' 时走战斗路径，否则走常规回合路径
-      {
-        type: "condition",
-        when: (ctx) => ctx.data.branchPick !== void 0 && ctx.data.branchPick.kind === "battle",
-        then: [
-          // [llm] 战斗推演：根据分支标题/描述+玩家输入+全量状态客观推演战斗 | prompt: CONFRONTATION_BATTLE_SYSTEM | schema: {text, dead, delta: DELTA_SCHEMA} | assign: battleConfrontation
-          {
-            type: "llm",
-            system: CONFRONTATION_BATTLE_SYSTEM,
-            input: (ctx) => {
-              const w = ctx.state._w;
-              const pick = ctx.data.branchPick;
-              return `\u73A9\u5BB6\u9009\u62E9\u5206\u652F\uFF1A${pick?.title || ""}\uFF08${pick?.simpleDesc || ""}\uFF09
-\u73A9\u5BB6\u8F93\u5165\uFF1A${ctx.input?.text || ""}
+          return `\u73A9\u5BB6\u884C\u52A8\uFF1A${ctx.input?.text || "\uFF08\u65E0\uFF09"}
 
 \u5F53\u524D\u5168\u91CF\u72B6\u6001\uFF1A
 ${JSON.stringify(rules.publicState(w))}
-\u8BF7\u5BA2\u89C2\u63A8\u6F14\u6218\u6597\u5E76\u7ED9\u51FA\u7ED3\u679C\u3002`;
-            },
-            schema: BATTLE_SCHEMA,
-            assign: "battleConfrontation"
-          },
-          { type: "static", fn: rules.applyConfrontationBattle },
-          // [condition] 存活才生成选项：未死亡时才继续生成下轮选项
-          {
-            type: "condition",
-            when: (ctx) => ctx.state._w.meta.dead !== true,
-            then: [
-              // [llm] 战后选项生成：基于战斗文本与当前状态生成 4 个带风险与分支的选项 | prompt: CHOICE_SYSTEM | schema: {options[4]{text, risk, branches[2-3]}} | assign: choice
-              {
-                type: "llm",
-                system: CHOICE_SYSTEM,
-                input: (ctx) => {
-                  const w = ctx.state._w;
-                  const battleText = ctx.data.battleConfrontation?.text || "";
-                  return `\u672C\u56DE\u5408\u5267\u60C5\uFF1A${battleText}
-\u5F53\u524D\u72B6\u6001\uFF1A
-${JSON.stringify(rules.publicState(w))}`;
-                },
-                schema: CHOICE_SCHEMA,
-                assign: "choice"
-              },
-              // [static] 选项校验：检查 choice 选项数/风险/分支合法性 | 读 choice | 规则: rules.validateChoice
-              { type: "static", fn: rules.validateChoice },
-              // [static] 分支存储：将 choice 中的 branches 抽检存储为 pendingBranch | 读 choice | 规则: rules.storePendingBranch
-              { type: "static", fn: rules.storePendingBranch }
-            ]
-          },
-          // [render] 主屏渲染：战斗路径终点渲染游戏主屏 | 依赖 battleConfrontation / choice
-          { type: "render", build: views.buildPlayScreen }
-        ],
-        else: [
-          // [llm] 常规回合推演：根据玩家行动+分支 other 提示+全量状态生成剧情 | prompt: TURN_SYSTEM | schema: {text, kind, eventRef, delta, relationships, romance, cultivate, switchMain, breakthrough, timeCost} | assign: turn
-          {
-            type: "llm",
-            system: TURN_SYSTEM,
-            input: (ctx) => {
-              const w = ctx.state._w;
-              const pick = ctx.data.branchPick;
-              const branchHint = pick ? `\uFF08\u672C\u6B21\u4E3A\u5206\u652F\u62BD\u68C0\u547D\u4E2D other\uFF1A${pick.title} - ${pick.simpleDesc}\uFF0C\u8BF7\u636E\u6B64\u5C55\u5F00\u5B8C\u6574\u5267\u60C5\uFF09` : "";
-              return `\u73A9\u5BB6\u884C\u52A8\uFF1A${ctx.input?.text || "\uFF08\u65E0\uFF09"}${branchHint}
 
-\u5F53\u524D\u72B6\u6001\uFF1A
-${JSON.stringify(rules.publicState(w))}`;
-            },
-            schema: TURN_SCHEMA,
-            assign: "turn"
-          },
-          // [condition] 突破分流：当 turn.breakthrough === true 时走突破子链，否则走常规落库
-          {
-            type: "condition",
-            when: (ctx) => !!ctx.data.turn?.breakthrough,
-            then: [
-              // [static] 突破率计算：调用 calcBreakthroughRate 掷骰决定 success，检查修为是否达 cap | 无 prompt/schema | 读 turn | 写 breakthroughCalc | 规则: rules.calcBreakthroughRate + cultivationCap
-              {
-                type: "static",
-                fn: (ctx) => {
-                  const w = ctx.state._w;
-                  const calc = rules.calcBreakthroughRate(w);
-                  const { rate, talentBonus, base, breakBonus } = calc;
-                  const success = Math.random() < rate;
-                  ctx.data.breakthroughCalc = { rate, talentBonus, base, breakBonus, success, isMajor: calc.isMajor };
-                  const cap = rules.cultivationCap(w);
-                  if (w.stats.cultivation < cap) return `\u4FEE\u4E3A\u4E0D\u8DB3\uFF1A${w.stats.cultivation}/${cap}\uFF0C\u8BF7\u5148\u4FEE\u70BC`;
-                  return;
-                }
-              },
-              // [llm] 突破文案生成：基于当前状态与突破计算结果生成突破文本 | prompt: BREAKTHROUGH_SYSTEM | schema: {text, extraCultivation, nextRateBonus} | assign: breakthrough
-              {
-                type: "llm",
-                system: BREAKTHROUGH_SYSTEM,
-                input: (ctx) => {
-                  const w = ctx.state._w;
-                  const calc = ctx.data.breakthroughCalc;
-                  return `\u5F53\u524D\u72B6\u6001\uFF1A
+\u8BF7\u5BA2\u89C2\u63A8\u6F14\u8FD9\u573A\u6218\u6597\u3002`;
+        },
+        schema: BATTLE_SCHEMA,
+        assign: "battle"
+      },
+      { type: "static", fn: (ctx) => rules.applyBattle(ctx) ?? void 0 },
+      { type: "render", build: views.buildPlayScreen }
+    ],
+    requireRender: true
+  });
+  api.flow.register({
+    name: "game_breakthrough",
+    nodes: [
+      { type: "static", fn: initCtx(ledger) },
+      { type: "static", fn: frontCheck },
+      // [static] 突破判定：calcBreakthroughRate 算成功率并掷骰 success（唯一权威）；修为未满则 fail-fast
+      {
+        type: "static",
+        fn: (ctx) => {
+          const w = ctx.state._w;
+          const calc = rules.calcBreakthroughRate(w);
+          const { rate, talentBonus, base, breakBonus } = calc;
+          const success = Math.random() < rate;
+          ctx.data.breakthroughCalc = { rate, talentBonus, base, breakBonus, success, isMajor: calc.isMajor };
+          const cap = rules.cultivationCap(w);
+          if (w.stats.cultivation < cap) return `\u4FEE\u4E3A\u672A\u6EE1\uFF1A${w.stats.cultivation}/${cap}\uFF0C\u5C1A\u4E0D\u5B9C\u7A81\u7834`;
+          return;
+        }
+      },
+      {
+        type: "llm",
+        system: BREAKTHROUGH_SYSTEM,
+        input: (ctx) => {
+          const w = ctx.state._w;
+          const calc = ctx.data.breakthroughCalc;
+          return `\u5F53\u524D\u72B6\u6001\uFF1A
 ${JSON.stringify(rules.publicState(w))}
 \u7A81\u7834\u8BA1\u7B97\uFF1A\u6210\u529F=${calc?.success} \u7387=${calc ? Math.round(calc.rate * 100) : "?"}% \u5929\u8D44\u52A0\u6210=${calc?.talentBonus ?? 0}
-\u8BF7\u636E\u6B64\u5199\u7A81\u7834\u77ED\u6587\u6848\u5E76\u7ED9\u51FA extraCultivation/nextRateBonus\u3002`;
-                },
-                schema: BREAKTHROUGH_SCHEMA,
-                assign: "breakthrough"
-              },
-              // [static] 突破落库：应用突破结果（境界/修为/加成）并写 log | 读 breakthrough/breakthroughCalc | 规则: rules.applyBreakthrough
-              { type: "static", fn: rules.applyBreakthrough }
-            ],
-            else: [
-              // [static] 常规落库：应用 turn 的 delta/关系/修炼/时间等 | 读 turn | 规则: rules.applyTurn
-              { type: "static", fn: rules.applyTurn }
-            ]
-          },
-          // [condition] 存活才存分支抽检：死亡时无下轮选项，不存 pendingBranch
-          {
-            type: "condition",
-            when: (ctx) => ctx.state._w.meta.dead !== true,
-            then: [
-              // [static] 分支存储：将 turn.options 中的分支存储为 pendingBranch（选项已由说书人节点直接输出）| 读 turn.options | 规则: rules.storePendingBranch
-              { type: "static", fn: rules.storePendingBranch }
-            ]
-          },
-          // [render] 主屏渲染：常规路径终点渲染游戏主屏 | 依赖 turn（含 options）
-          { type: "render", build: views.buildPlayScreen }
-        ]
-      }
+\u636E\u6B64\u5199\u7A81\u7834\u53D9\u4E8B\uFF08\u542B extraCultivation/nextRateBonus\uFF09\u3002`;
+        },
+        schema: BREAKTHROUGH_SCHEMA,
+        assign: "breakthrough"
+      },
+      { type: "static", fn: (ctx) => rules.applyBreakthrough(ctx) ?? void 0 },
+      { type: "render", build: views.buildPlayScreen }
     ],
     requireRender: true
   });
 }
 
 // src/flows/majorEvents.ts
-function makeApplyDecadalEvents(ledger) {
-  return (ctx) => {
-    const w = ctx.state._w;
-    const world = w.stats.world;
-    if (!world || typeof world.name !== "string" || !world.name.trim()) return "\u4E16\u754C\u9AA8\u67B6\u4E3A\u7A7A\uFF0C\u8BF7\u5148 create_world";
-    if (!Array.isArray(world.regions) || world.regions.length === 0) return "\u4E16\u754C\u9AA8\u67B6\u4E0D\u5168\uFF08regions \u7F3A\u5931\uFF09\uFF0C\u8BF7\u5148 create_world";
-    if (!Array.isArray(world.sects) || world.sects.length === 0) return "\u4E16\u754C\u9AA8\u67B6\u4E0D\u5168\uFF08sects \u7F3A\u5931\uFF09\uFF0C\u8BF7\u5148 create_world";
-    if (typeof world.law !== "string" || !world.law.trim()) return "\u4E16\u754C\u9AA8\u67B6\u4E0D\u5168\uFF08law \u7F3A\u5931\uFF09\uFF0C\u8BF7\u5148 create_world";
-    const d = ctx.data.decadalEvents;
-    const raw = Array.isArray(d?.majorEvents) ? d.majorEvents : [];
-    if (raw.length < 15 || raw.length > 30) return "\u5927\u4E8B\u4EF6\u6570\u91CF\u987B 15-30 \u6761";
-    const events = [];
-    for (const e of raw) {
-      const name = String(e.name || "").trim();
-      if (!name) return "\u5927\u4E8B\u4EF6 name \u4E0D\u80FD\u4E3A\u7A7A";
-      const at = Number(e.at);
-      const by = Number(e.by);
-      const type = String(e.type || "\u673A\u9047");
-      if (!["\u673A\u9047", "\u5371\u673A", "\u8F6C\u6298", "\u9AD8\u6F6E"].includes(type)) return `\u4E8B\u4EF6\u300C${name}\u300Dtype \u975E\u6CD5`;
-      const summary = String(e.summary || "").trim();
-      if (!summary) return `\u4E8B\u4EF6\u300C${name}\u300Dsummary \u4E0D\u80FD\u4E3A\u7A7A`;
-      if (w.majorEvents.some((ex) => ex.name === name) || events.some((ex) => ex.name === name)) return `\u5927\u4E8B\u4EF6\u540D\u91CD\u590D\uFF1A${name}`;
-      events.push({ name, at, by, type, summary, status: "pending" });
-    }
-    w.majorEvents.push(...events);
-    ledger.saveAll();
-    return null;
-  };
-}
-function registerMajorEventsFlows(api, ledger, _rules, _views) {
+function registerMajorEventsFlows(api, ledger, rules) {
   api.flow.register({
     name: "generate_major_events",
     nodes: [
-      // [static] 上下文初始化：加载 ledger.getWorld 到 ctx.state._w | 无 prompt/schema | 规则: initCtx(ledger)
+      // [static] 上下文初始化：加载 ledger.getWorld 到 ctx.state._w | 规则: initCtx(ledger)
       { type: "static", fn: initCtx(ledger) },
-      // [llm] 十年大事件生成：基于当前时间/世界名/地域宗门/已有事件让 AI 生成未来 5-10 条事件 | prompt: MAJOR_EVENTS_SYSTEM | schema: DECADAL_EVENTS_SCHEMA | assign: decadalEvents
+      // [llm] 大事件生成：基于当前时间与已有大事件（name@at）生成未来五十年 15-30 条（防重名/时间锚定）；
+      // 世界名/地域/宗门由头部 worldSetting 状态卡承担，不再局部注入 | prompt: MAJOR_EVENTS_SYSTEM | schema: DECADAL_EVENTS_SCHEMA | assign: decadalEvents
       {
         type: "llm",
         system: MAJOR_EVENTS_SYSTEM,
         input: (ctx) => {
           const w = ctx.state._w;
-          const world = w.stats.world;
+          const existing = w.majorEvents.map((e) => `${e.name}@${e.at}`);
           return `\u5F53\u524D\u65F6\u95F4\uFF1A\u7B2C${w.stats.timeMonth}\u6708
-\u4E16\u754C\uFF1A${JSON.stringify({ name: world?.name, regions: world?.regions, sects: world?.sects?.map((s) => s.name) })}
-\u5DF2\u6709\u5927\u4E8B\u4EF6\uFF1A${JSON.stringify(w.majorEvents.map((e) => `${e.name}@${e.at}`))}
+\u5DF2\u6709\u5927\u4E8B\u4EF6\uFF1A${JSON.stringify(existing)}
 \u8BF7\u751F\u6210\u672A\u6765\u4E94\u5341\u5E74 15-30 \u6761\u5927\u4E8B\u4EF6\uFF0C\u5747\u5300\u5206\u5E03\u5728 50 \u5E74\u5185\uFF08at \u987B >${w.stats.timeMonth} \u4E14 \u2264${w.stats.timeMonth + 600}\uFF09\u3002`;
         },
         schema: DECADAL_EVENTS_SCHEMA,
         assign: "decadalEvents"
       },
-      // [static] 校验落库：将 decadalEvents 校验后写入 w.majorEvents 并 saveAll | 无 prompt/schema | 读 decadalEvents | 规则: makeApplyDecadalEvents(ledger)
-      { type: "static", fn: makeApplyDecadalEvents(ledger) },
-      // [static] 结果回写：将新生成事件数写入 ctx.data.resultText 供调用方展示 | 无 prompt/schema | 读 w.majorEvents
-      {
-        type: "static",
-        fn: (ctx) => {
-          const w = ctx.state._w;
-          const evs = w.majorEvents.slice(-30);
-          ctx.data.resultText = `\u5DF2\u751F\u6210\u672A\u6765\u4E94\u5341\u5E74\u5927\u4E8B\u4EF6 ${evs.length} \u6761`;
-          return;
-        }
-      }
+      // [static] 校验落库：decadalEvents 校验后写入 w.majorEvents 并 saveAll，失败直接阻断（调度器级兜底） | 读 decadalEvents | 规则: rules.applyDecadalEvents
+      { type: "static", fn: (ctx) => rules.applyDecadalEvents(ctx) ?? void 0 }
     ],
     requireRender: false
   });
@@ -2293,7 +1849,7 @@ ${JSON.stringify(rules.publicState(w))}`;
           const d = ctx.data.query;
           if (!d || typeof d.answer !== "string" || !d.answer.trim()) return "\u67E5\u8BE2\u56DE\u7B54\u4E3A\u7A7A";
           ctx.data.queryAnswer = d.answer.trim();
-          return null;
+          return void 0;
         }
       }
     ],
@@ -2305,8 +1861,8 @@ ${JSON.stringify(rules.publicState(w))}`;
 function registerFlows(api, ledger, rules, views) {
   registerGameFlows(api, ledger, rules, views);
   registerTurnFlows(api, ledger, rules, views);
-  registerMajorEventsFlows(api, ledger, rules, views);
-  registerQueryFlows(api, ledger, rules, views);
+  registerMajorEventsFlows(api, ledger, rules);
+  registerQueryFlows(api, ledger, rules);
 }
 
 // src/tools.ts
@@ -2405,7 +1961,7 @@ function registerTools(api, ledger, rules) {
     },
     {
       name: "game_turn",
-      description: "\u63A8\u8FDB\u4FEE\u4ED9\u4E16\u754C\u5267\u60C5\uFF08\u65F6\u95F4 +\u4EFB\u610F\u6708\uFF08\u53EF\u4E3A0\uFF09\uFF0C\u6309\u95ED\u5173\u65F6\u957F\uFF1B\u5207\u4E3B\u4FEE/\u7A81\u7834\uFF09\uFF1A\u53D9\u4E8B\u63A8\u8FDB\u8FDB\u884C\u4E2D\u7684\u5927\u4E8B\u4EF6\uFF0C\u641C\u522E\u4E39\u836F/\u529F\u6CD5\u4E3A\u8F85\uFF0C\u597D\u611F/\u9053\u4FA3/\u8BB0\u5FC6\u5728\u6B64\u8868\u8FBE\uFF0C\u754C\u9762\u63A8\u9001\uFF08\u6E32\u67D3\u5FC5\u8FBE\uFF09\u3002",
+      description: "\u63A8\u8FDB\u4FEE\u4ED9\u4E16\u754C\u65E5\u5E38\u5267\u60C5\uFF08\u65F6\u95F4 +\u4EFB\u610F\u6708\uFF08\u53EF\u4E3A0\uFF09\uFF0C\u6309\u95ED\u5173\u65F6\u957F\uFF1B\u5207\u4E3B\u4FEE\uFF09\uFF1A\u53D9\u4E8B\u63A8\u8FDB\u8FDB\u884C\u4E2D\u7684\u5927\u4E8B\u4EF6\uFF0C\u641C\u522E\u4E39\u836F/\u529F\u6CD5\u4E3A\u8F85\uFF0C\u597D\u611F/\u9053\u4FA3/\u8BB0\u5FC6\u5728\u6B64\u8868\u8FBE\uFF0C\u754C\u9762\u63A8\u9001\uFF08\u6E32\u67D3\u5FC5\u8FBE\uFF09\u3002\u6218\u6597\u906D\u9047\u8BF7\u6539\u8C03 game_battle\uFF1B\u51B2\u51FB\u7A81\u7834\u8BF7\u6539\u8C03 game_breakthrough\u3002",
       inputSchema: {
         type: "object",
         properties: {
@@ -2419,10 +1975,64 @@ function registerTools(api, ledger, rules) {
         const state = result.result?.render;
         const turns = result.result?.meta;
         if (turns?.dead) return uiPrompt("game_turn", "[\u8EAB\u6B7B\u9053\u6D88] \u73A9\u5BB6\u5DF2\u6B7B\u4EA1\uFF0C\u6B64\u5C40\u7ED3\u675F\u3002\u5982\u9700\u91CD\u65B0\u5F00\u59CB\u8BF7\u8C03\u7528 create_world\u3002", state);
-        return uiPrompt("game_turn", `[\u672C\u8F6E\u53D9\u4E8B\u5DF2\u7ED3\u675F] \u7B2C${turns?.turns ?? "?"}\u56DE\u5408\u5DF2\u63A8\u9001\u5B8C\u6BD5\u3002\u53EF\u7EC8\u6B62\u672C\u8F6E`, state, "\u672C\u8F6E\u5267\u60C5\u5DF2\u63A8\u9001\u5B8C\u6BD5\uFF0C\u7981\u6B62\u518D\u6B21\u8C03\u7528 game_turn\uFF0C\u7ACB\u5373\u8C03\u7528 host_yield \u6536\u8F6E\u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F");
+        return uiPrompt("game_turn", "[UI \u5DF2\u63A8\u9001]", state, "\u7ACB\u5373\u8C03\u7528 host_yield \u7ED3\u675F\u672C\u8F6E\u3002\u5728\u6B64\u4E4B\u524D\u7981\u6B62\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\u3001\u7981\u6B62\u8F93\u51FA\u4EFB\u4F55\u6587\u672C\u3002host_yield \u4E4B\u540E\u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F\u3002");
       },
       run: (input, meta) => {
         return api.flow.run("game_turn", input).then((res) => {
+          if (!res.ok) return { ok: false, error: res.error || "\u6E38\u620F\u5F15\u64CE\u6267\u884C\u5931\u8D25" };
+          const w = ledger.getWorld(meta.conversationId);
+          refreshWorldSetting(api, ledger, rules, meta);
+          const render = res.state?.__render;
+          return { ok: true, result: { state: res.state, render, meta: { turns: w.meta.turns, dead: w.meta.dead } } };
+        });
+      }
+    },
+    {
+      name: "game_battle",
+      description: "\u6218\u6597\u906D\u9047\u63A8\u6F14\uFF1A\u73A9\u5BB6\u5377\u5165\u654C\u5BF9\u51B2\u7A81\u3001\u53AE\u6740\u3001\u56F4\u653B\u3001\u62A4\u6CD5\u4E4B\u6218\u7B49\u6218\u6597\u573A\u666F\u65F6\u8C03\u7528\uFF08\u66FF\u4EE3 game_turn \u63A8\u8FDB\u672C\u56DE\u5408\uFF09\u3002\u5BA2\u89C2\u63A8\u6F14\u80DC/\u9003/\u6B7B\uFF0Cdelta \u7ED3\u7B97\u6218\u5229\u54C1\u4E0E\u635F\u4F24\uFF0C\u754C\u9762\u63A8\u9001\uFF08\u6E32\u67D3\u5FC5\u8FBE\uFF09\u3002\u65E5\u5E38\u975E\u6218\u6597\u5267\u60C5\u8BF7\u7528 game_turn\u3002",
+      inputSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "\u73A9\u5BB6\u8F93\u5165\u539F\u6587" }
+        },
+        required: ["text"]
+      },
+      silent: false,
+      transformPrompt: (result) => {
+        if (!result.ok) return failPrompt("game_battle", result.error);
+        const state = result.result?.render;
+        const turns = result.result?.meta;
+        if (turns?.dead) return uiPrompt("game_battle", "[\u8EAB\u6B7B\u9053\u6D88] \u73A9\u5BB6\u5DF2\u6218\u6B7B\uFF0C\u6B64\u5C40\u7ED3\u675F\u3002\u5982\u9700\u91CD\u65B0\u5F00\u59CB\u8BF7\u8C03\u7528 create_world\u3002", state);
+        return uiPrompt("game_battle", "[UI \u5DF2\u63A8\u9001]", state, "\u7ACB\u5373\u8C03\u7528 host_yield \u7ED3\u675F\u672C\u8F6E\u3002\u5728\u6B64\u4E4B\u524D\u7981\u6B62\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\u3001\u7981\u6B62\u8F93\u51FA\u4EFB\u4F55\u6587\u672C\u3002host_yield \u4E4B\u540E\u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F\u3002");
+      },
+      run: (input, meta) => {
+        return api.flow.run("game_battle", input).then((res) => {
+          if (!res.ok) return { ok: false, error: res.error || "\u6E38\u620F\u5F15\u64CE\u6267\u884C\u5931\u8D25" };
+          const w = ledger.getWorld(meta.conversationId);
+          refreshWorldSetting(api, ledger, rules, meta);
+          const render = res.state?.__render;
+          return { ok: true, result: { state: res.state, render, meta: { turns: w.meta.turns, dead: w.meta.dead } } };
+        });
+      }
+    },
+    {
+      name: "game_breakthrough",
+      description: "\u51B2\u51FB\u7A81\u7834\uFF1A\u73A9\u5BB6\u4FEE\u4E3A\u5DF2\u8FBE\u5F53\u524D\u5883\u754C\u4E0A\u9650\uFF08\u4FEE\u4E3A=cap\uFF09\u4E14\u610F\u56FE\u51B2\u51FB\u74F6\u9888/\u7A81\u7834\u5883\u754C\u65F6\u8C03\u7528\uFF0C\u7CFB\u7EDF\u5224\u5B9A\u6210\u8D25\u5E76\u63A8\u6F14\u7A81\u7834\u53D9\u4E8B\uFF0C\u754C\u9762\u63A8\u9001\uFF08\u6E32\u67D3\u5FC5\u8FBE\uFF09\u3002\u4FEE\u4E3A\u672A\u6EE1\u6216\u65E5\u5E38\u5267\u60C5\u8BF7\u7528 game_turn\u3002",
+      inputSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "\u73A9\u5BB6\u8F93\u5165\u539F\u6587" }
+        },
+        required: ["text"]
+      },
+      silent: false,
+      transformPrompt: (result) => {
+        if (!result.ok) return failPrompt("game_breakthrough", result.error);
+        const state = result.result?.render;
+        return uiPrompt("game_breakthrough", "[UI \u5DF2\u63A8\u9001]", state, "\u7ACB\u5373\u8C03\u7528 host_yield \u7ED3\u675F\u672C\u8F6E\u3002\u5728\u6B64\u4E4B\u524D\u7981\u6B62\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\u3001\u7981\u6B62\u8F93\u51FA\u4EFB\u4F55\u6587\u672C\u3002host_yield \u4E4B\u540E\u7B49\u5F85\u73A9\u5BB6\u4E0B\u4E00\u6761\u6D88\u606F\u3002");
+      },
+      run: (input, meta) => {
+        return api.flow.run("game_breakthrough", input).then((res) => {
           if (!res.ok) return { ok: false, error: res.error || "\u6E38\u620F\u5F15\u64CE\u6267\u884C\u5931\u8D25" };
           const w = ledger.getWorld(meta.conversationId);
           refreshWorldSetting(api, ledger, rules, meta);
@@ -2507,7 +2117,7 @@ var COMPACT_SYSTEM = "\u4F60\u662F\u5BF9\u8BDD\u538B\u7F29\u5668\u3002\u628A\u7E
 var plugin = {
   id: "cultivation",
   name: "\u4FEE\u4ED9\u4E16\u754C",
-  version: "0.5.1",
+  version: "0.5.2",
   description: "\u6570\u503C\u4FEE\u4ED9\u4E16\u754C\uFF1A\u5883\u754C\u9636\u68AF/\u529F\u6CD5/\u4E39\u836F/\u672F\u6CD5\u91CF\u5316\uFF0C\u5927\u4E8B\u4EF6\u9A71\u52A8\u53D9\u4E8B\uFF0CNPC \u6C60\u4E0E\u9053\u4FA3\u7CFB\u7EDF\uFF0C\u6218\u8D25\u5373\u6B7B\u3002",
   setup(api) {
     const ledger = createLedger(api);
@@ -2520,7 +2130,7 @@ var plugin = {
       role: "sub",
       description: "\u4FEE\u4ED9\u6587\u5B57\u6E38\u620F\uFF1A\u4EC5\u5F53\u7528\u6237\u660E\u786E\u60F3\u8FDB\u5165/\u5F00\u59CB\u4FEE\u4ED9\u4E16\u754C\u3001\u73A9\u4FEE\u4ED9\u6E38\u620F\u3001\u6216\u5728\u4FEE\u4ED9\u4E16\u754C\u5185\u7EE7\u7EED\u884C\u52A8\u65F6\u8FDB\u5165\uFF1B\u95EE\u5019/\u95F2\u804A/\u65E0\u5173\u8BDD\u9898\u4E0D\u8981\u8FDB\u5165\uFF0C\u76F4\u63A5\u6587\u672C\u56DE\u590D\u3002",
       initialPrompt: PROTOCOL_PROMPT,
-      toolNames: ["create_world", "create_character", "reset_character", "game_turn", "game_query", "generate_major_events", "generate_npcs"],
+      toolNames: ["create_world", "create_character", "reset_character", "game_turn", "game_battle", "game_breakthrough", "game_query", "generate_major_events", "generate_npcs"],
       compaction: {
         summaryPrompt: COMPACT_SYSTEM,
         summarySlot: "game_lore",
