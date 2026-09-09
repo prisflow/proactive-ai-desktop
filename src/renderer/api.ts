@@ -57,6 +57,9 @@ declare global {
         connect: (url: string, code: string) => Promise<{ ok: boolean; error?: string; deviceId?: string }>
         disconnect: () => Promise<{ ok: boolean; deviceId?: string }>
       }
+      trayMenu: {
+        action: (act: 'show' | 'quit') => void
+      }
     }
   }
 }

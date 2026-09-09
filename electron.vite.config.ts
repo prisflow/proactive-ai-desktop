@@ -20,6 +20,11 @@ export default defineConfig({
     },  
   },
   preload: {
+    resolve: {
+      alias: {
+        '@shared': resolve(__dirname, 'src/shared'),
+      },
+    },
     build: {
       externalizeDeps: true,
       rollupOptions: {
@@ -35,6 +40,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'index.html'),
+          tray: resolve(__dirname, 'tray.html'),
         },
       },
     },

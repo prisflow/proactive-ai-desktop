@@ -22,3 +22,6 @@ export const DEFAULT_FONT_SIZE = 16
 
 /** 官方公网中继地址（设置页缺省值；自建中继可改）。 */
 export const DEFAULT_RELAY_URL = "wss://remote.proactiveai.prisflow.com/relay"
+
+/** 托盘弹出菜单窗口几何。 */
+export const TRAY_MENU = { width: 140, height: 86 } as const

@@ -122,6 +122,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     disconnect: (): Promise<{ ok: boolean; deviceId?: string }> =>
       ipcRenderer.invoke('relay:disconnect'),
   },
+
+  /** 托盘弹出菜单动作（宿主自绘菜单页 → 主进程）。 */
+  trayMenu: {
+    action: (act: 'show' | 'quit'): void => ipcRenderer.send('tray-menu:action', act),
+  },
 })
 
 export type ElectronAPI = typeof window.electronAPI

@@ -53,6 +53,17 @@ export function isSemver(v: string): boolean {
   return /^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$/.test(v)
 }
 
+/** semver 大小比较：major.minor.patch 逐段数值比较（忽略预发布后缀）。 */
+export function semverGt(a: string, b: string): boolean {
+  const pa = a.split('-')[0].split('.').map(Number)
+  const pb = b.split('-')[0].split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return d > 0
+  }
+  return false
+}
+
 /**
  * 插件安装时获得的 API。
  * 上下文和工具分别注册到各自的全局注册表，互不耦合。

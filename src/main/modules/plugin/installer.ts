@@ -3,7 +3,7 @@ import fsp from 'fs/promises'
 import path from 'path'
 import AdmZip from 'adm-zip'
 import type { PluginManifest } from './types'
-import { isSemver } from './types'
+import { isSemver, semverGt } from './types'
 import type { PluginImportResult } from '@shared/types/plugin'
 import { logService, uniqueRunId } from '../../services/logger'
 /**
@@ -135,7 +135,8 @@ export async function syncBuiltinPlugins(builtinDir: string, pluginsDir: string)
       const entryOut = path.join(pluginsDir, entryName)
       const manifestOut = path.join(pluginsDir, `${path.basename(entryName, '.js')}.json`)
 
-      // 仅当目标不存在时复制（首启 seed；不覆盖用户后续安装/修改的版本）
+      // 目标不存在 → 首启 seed；已存在 → 内置版本更新时覆盖（官方内置升级通道，
+      // 用户手改/降级的版本因 semver 不大于已装版本而不被触碰）
       if (!fs.existsSync(entryOut)) {
         await fsp.copyFile(entrySrc, entryOut)
         await fsp.writeFile(manifestOut, JSON.stringify(manifest, null, 2))
@@ -152,6 +153,22 @@ export async function syncBuiltinPlugins(builtinDir: string, pluginsDir: string)
           name: 'installer.builtin',
           message: `backfilled manifest for builtin plugin ${id} -> ${manifestOut}`,
         })
+      } else {
+        // 双双存在：比对版本，内置更新则覆盖 entry + manifest
+        try {
+          const installed = JSON.parse(await fsp.readFile(manifestOut, 'utf-8')) as PluginManifest
+          if (isSemver(installed.version) && isSemver(manifest.version) && semverGt(manifest.version, installed.version)) {
+            await fsp.copyFile(entrySrc, entryOut)
+            await fsp.writeFile(manifestOut, JSON.stringify(manifest, null, 2))
+            logService.log('info', undefined, {
+              runId: uniqueRunId('plugin'),
+              name: 'installer.builtin',
+              message: `upgraded builtin plugin ${id} ${installed.version} -> ${manifest.version}`,
+            })
+          }
+        } catch {
+          // 已装 manifest 损坏：按不覆盖处理，不破坏用户目录
+        }
       }
     }
   } catch (e) {

@@ -50,6 +50,11 @@ export interface NonSilentToolDef {
   run: (input: Record<string, unknown>, meta: ToolCallMeta) => ToolResult | Promise<ToolResult>
   silent?: false
   transformPrompt: (result: ToolResult) => ToolPromptResult
+  /**
+   * 收轮引擎化：执行 + transformPrompt 完成后，引擎直接收轮（等价 host_yield），
+   * 不再把 instruction 回喂 LLM。剧情类工具专用——收轮由引擎保证，不依赖模型自觉。
+   */
+  autoYield?: boolean
 }
 
 /** 工具定义——注册时需满足对应的 silent/transformPrompt 约束。 */
