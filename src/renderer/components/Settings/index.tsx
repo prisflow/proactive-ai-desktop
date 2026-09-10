@@ -7,10 +7,9 @@ import { useToastStore } from '@/stores/toastStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import { syncI18nFromConfig } from '@/i18n'
-import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_FONT_SIZE, DEFAULT_RELAY_URL } from '@shared/constants'
+import { DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_THEME, DEFAULT_RELAY_URL } from '@shared/constants'
 import { DEFAULT_LOCALE } from '@shared/locale'
 
 /** 分段控件：一组等宽选项，选中高亮。 */
@@ -184,7 +183,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     { key: 'en-US', label: t('settings.langEn') },
   ]
 
-  const fontSize = config.fontSize ?? DEFAULT_FONT_SIZE
 
   return (
     <div
@@ -269,21 +267,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             <SectionTitle icon={Palette}>{t('settings.appearance')}</SectionTitle>
             <Segmented options={themes} value={config.theme ?? DEFAULT_THEME} onChange={(v) => updateConfig({ theme: v })} />
             <p className="text-xs text-[var(--app-muted)]">{t('settings.themeHint')}</p>
-
-            <div className="flex items-center gap-3 pt-1">
-              <Label className="shrink-0 text-[var(--app-muted)] text-sm">{t('settings.fontSize')}</Label>
-              <Slider
-                value={[fontSize]}
-                min={12}
-                max={24}
-                step={1}
-                className="flex-1"
-                onValueChange={([v]) => updateConfig({ fontSize: v })}
-              />
-              <span className="w-10 shrink-0 rounded-md bg-[var(--app-subtle-section)] px-1.5 py-0.5 text-center text-xs font-medium text-[var(--app-fg)]">
-                {fontSize}
-              </span>
-            </div>
           </section>
 
           {/* LLM 设置 */}

@@ -7,3 +7,5 @@ out/
 .env
 .env.local
 *.local
+
+electron.vite.config.*.mjs

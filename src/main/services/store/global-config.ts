@@ -2,14 +2,14 @@
  * 全局配置持久化。读写 SQLite config 表，启动时自动加载。
  *
  * 语义：get() 返回数据库原样（未设置 = null），不做默认值合并。
- * 默认值兜底由前端显示处（theme/locale/fontSize）与后端请求处（model/baseURL）各自完成。
+ * 默认值兜底由前端显示处（theme/locale）与后端请求处（model/baseURL）各自完成。
  */
 import type { GlobalSettings } from '@shared/types/domain'
 import { databaseService } from './database'
 import { configTable } from './schema'
 
 /** GlobalSettings 中需要持久化的键集合 */
-const CONFIG_KEYS: (keyof GlobalSettings)[] = ['apiKey', 'model', 'baseURL', 'locale', 'theme', 'fontSize', 'relayUrl', 'relayCode', 'relayDeviceId']
+const CONFIG_KEYS: (keyof GlobalSettings)[] = ['apiKey', 'model', 'baseURL', 'locale', 'theme', 'relayUrl', 'relayCode', 'relayDeviceId']
 
 export class GlobalConfigStore {
   private cache: GlobalSettings | null = null
@@ -27,7 +27,6 @@ export class GlobalConfigStore {
       baseURL: null,
       locale: null,
       theme: null,
-      fontSize: null,
       relayUrl: null,
       relayCode: null,
       relayDeviceId: null,

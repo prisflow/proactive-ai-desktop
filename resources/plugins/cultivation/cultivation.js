@@ -21,7 +21,7 @@ function newWorld() {
       methods: [],
       mainMethod: null,
       talents: null,
-      pills: [],
+      bag: [],
       characters: [],
       npcGrowthMonths: 0,
       breakBonus: 0
@@ -80,7 +80,6 @@ var METHOD_GRADES = {
   \u5730\u9636: 600,
   \u5929\u9636: 3e3
 };
-var PILL_EFFECTS = ["cultivation", "breakthrough", "heal", "lifespan"];
 var REALM_POWER = {
   \u51E1\u4EBA: 0,
   \u7EC3\u6C14: 10,
@@ -182,20 +181,6 @@ function fmtRealm(w) {
 function cultivationCap(w) {
   return w.stats.realm === "\u51E1\u4EBA" ? CULTIVATION_CAP["\u7EC3\u6C14"] : CULTIVATION_CAP[w.stats.realm];
 }
-function pillEffectLabel(effectType, power) {
-  switch (effectType) {
-    case "cultivation":
-      return `\u4FEE\u4E3A+${power}`;
-    case "breakthrough":
-      return `\u7A81\u7834+${power}%`;
-    case "heal":
-      return `\u56DE\u8840+${power}`;
-    case "lifespan":
-      return `\u5EF6\u5BFF+${power}\u5E74`;
-    default:
-      return `${effectType}+${power}`;
-  }
-}
 function publicState(w) {
   const s = w.stats;
   const nearby = s.characters.filter((c) => c.location === s.location);
@@ -225,7 +210,7 @@ function publicState(w) {
       })()
     },
     methods: s.methods.map((m) => ({ ...m })),
-    pills: s.pills.map((p) => ({ ...p })),
+    bag: s.bag,
     characters: {
       total: s.characters.length,
       // 全量角色名册（快变：含境界/位置/好感——这些不放慢变卡，每轮输入给模型）
@@ -256,21 +241,22 @@ function worldSetting(w) {
   }
   return lines.join("\n");
 }
-function fmtStatus(w) {
+function fmtAssets(w) {
   const main = w.stats.methods.find((m) => m.name === w.stats.mainMethod);
   const methodsStr = w.stats.methods.length ? w.stats.methods.map((m) => `${m.name}[${m.grade}]${m.name === w.stats.mainMethod ? "\u2605\u4E3B\u4FEE" : ""}\uFF08${m.techniques.map((t) => `${t.name}\uFF1A${t.description}`).join("\uFF1B")}\uFF09`).join("\u3001") : "\u65E0";
-  const pillsStr = w.stats.pills.length ? w.stats.pills.map((p) => `${p.name}\xD7${p.amount}[${p.realm}\xB7${pillEffectLabel(p.effectType, p.power)}]`).join("\u3001") : "\u65E0";
   const talentsStr = w.stats.talents?.length ? w.stats.talents.map((t) => `${t.name}\u300C${t.description}\u300D`).join("\u3001") : "\u65E0";
   const breakRate = (() => {
     return Math.round(calcBreakthroughRate(w).rate * 100);
   })();
-  return `${w.stats.name ? `\u540D\u5B57\u300C${w.stats.name}\u300D` : ""}${w.stats.temperament ? `\xB7${w.stats.temperament}` : ""} | \u5883\u754C\uFF1A${fmtRealm(w)} | \u4FEE\u4E3A\uFF1A${w.stats.cultivation}/${cultivationCap(w)} | \u5BFF\u5143\uFF1A${Math.floor(w.stats.lifespan)}\u5E74 | \u65F6\u95F4\uFF1A${fmtTime(w)}
-\u7075\u77F3\uFF1A${w.stats.spiritStones} | \u4F53\u529B\uFF1A${w.stats.hp}/${w.stats.maxHp} | \u5730\u70B9\uFF1A${w.stats.location}
-\u4E3B\u4FEE\uFF1A${w.stats.mainMethod ? `${w.stats.mainMethod}${main ? `[${main.grade}]` : ""}` : "\u65E0"}
+  return `\u4E3B\u4FEE\uFF1A${w.stats.mainMethod ? `${w.stats.mainMethod}${main ? `[${main.grade}]` : ""}` : "\u65E0"}
 \u5929\u8D44\uFF1A${talentsStr}
 \u7A81\u7834\u7387\uFF1A${breakRate}%${w.stats.breakBonus ? `\uFF08\u5267\u60C5\u52A0\u6210+${Math.round(w.stats.breakBonus * 100)}%\uFF09` : ""}
-\u529F\u6CD5\uFF1A${methodsStr}
-\u4E39\u836F\uFF1A${pillsStr}`;
+\u529F\u6CD5\uFF1A${methodsStr}`;
+}
+function fmtStatus(w) {
+  return `${w.stats.name ? `\u540D\u5B57\u300C${w.stats.name}\u300D` : ""}${w.stats.temperament ? `\xB7${w.stats.temperament}` : ""} | \u5883\u754C\uFF1A${fmtRealm(w)} | \u4FEE\u4E3A\uFF1A${w.stats.cultivation}/${cultivationCap(w)} | \u5BFF\u5143\uFF1A${Math.floor(w.stats.lifespan)}\u5E74 | \u65F6\u95F4\uFF1A${fmtTime(w)}
+\u7075\u77F3\uFF1A${w.stats.spiritStones} | \u4F53\u529B\uFF1A${w.stats.hp}/${w.stats.maxHp} | \u5730\u70B9\uFF1A${w.stats.location}
+${fmtAssets(w)}`;
 }
 
 // src/rules/utils.ts
@@ -469,7 +455,7 @@ function makeApplyCharacter(ledger) {
     s.location = typeof origin?.location === "string" && origin.location ? origin.location : "\u672A\u77E5";
     s.spiritStones = 0;
     s.methods = [];
-    s.pills = [];
+    s.bag = [];
     const pushStarter = (starter, source) => {
       if (!starter) return;
       const stones = typeof starter.spiritStones === "number" ? starter.spiritStones : 0;
@@ -489,13 +475,7 @@ function makeApplyCharacter(ledger) {
           source
         });
       }
-      for (const it of starter.pills || []) {
-        const eff = String(it.effectType || "heal");
-        const realm = String(it.realm || "\u51E1\u4EBA");
-        const existing = s.pills.find((p) => p.name === it.name && p.effectType === eff && p.realm === realm);
-        if (existing) existing.amount += 1;
-        else s.pills.push({ name: String(it.name || "\u65E0\u540D\u4E39\u836F"), effectType: eff, realm, power: Number(it.power) || 10, amount: 1, source });
-      }
+      if (Array.isArray(starter.bag)) s.bag = starter.bag.map((it) => ({ name: String(it.name ?? ""), desc: String(it.desc ?? "") }));
     };
     pushStarter(origin?.starter, "\u51FA\u8EAB");
     s.mainMethod = s.methods[0]?.name ?? null;
@@ -648,50 +628,7 @@ function makeApplyTurn(ledger) {
           w.meta.deathCause = "\u91CD\u4F24\u4E0D\u6CBB";
         }
       }
-      if (Array.isArray(delta.pills)) {
-        for (const p of delta.pills) {
-          const amt = Math.floor(Number(p.amount) || 1);
-          if (amt === 0) continue;
-          if (amt > 0) {
-            const eff = String(p.effectType || "heal");
-            const realm = String(p.realm || "\u51E1\u4EBA");
-            const existing = w.stats.pills.find((pp) => pp.name === p.name && pp.effectType === eff && pp.realm === realm);
-            if (existing) existing.amount += amt;
-            else w.stats.pills.push({ name: String(p.name), effectType: eff, realm, power: Number(p.power) || 10, amount: amt, source: "delta" });
-          } else {
-            const pill = w.stats.pills.find((pp) => pp.name === p.name);
-            if (!pill || pill.amount < -amt) return `\u4E39\u836F\u300C${p.name}\u300D\u4E0D\u8DB3\uFF08\u9700 ${-amt}\uFF0C\u73B0 ${pill?.amount ?? 0}\uFF09`;
-          }
-        }
-        for (const p of delta.pills) {
-          const amt = Math.floor(Number(p.amount) || 0);
-          if (amt >= 0) continue;
-          const consume = -amt;
-          const pill = w.stats.pills.find((pp) => pp.name === p.name);
-          const pillRealmIdx = REALM_ORDER.indexOf(p.realm || pill.realm);
-          const curRealmIdx = REALM_ORDER.indexOf(s.realm);
-          let powerMult = 1;
-          if (pillRealmIdx >= 0 && curRealmIdx >= 0) {
-            const diff = Math.abs(pillRealmIdx - curRealmIdx);
-            if (diff > 2) powerMult = 0;
-            else if (diff === 2) powerMult = 0.5;
-          }
-          const effPower = Math.round((Number(p.power) || Number(pill.power) || 10) * powerMult);
-          const effType = String(p.effectType || pill.effectType);
-          if (effType === "cultivation") {
-            s.cultivation += effPower * consume;
-          } else if (effType === "breakthrough") {
-            s.breakBonus = (s.breakBonus ?? 0) + effPower * consume / 100;
-          } else if (effType === "heal") {
-            const healed = Math.min(s.maxHp - s.hp, effPower * consume);
-            s.hp += healed;
-          } else if (effType === "lifespan") {
-            s.lifespan += effPower * consume;
-          }
-          pill.amount += amt;
-          if (pill.amount <= 0) w.stats.pills.splice(w.stats.pills.indexOf(pill), 1);
-        }
-      }
+      if (Array.isArray(delta.bag)) w.stats.bag = delta.bag.map((it) => ({ name: String(it.name ?? ""), desc: String(it.desc ?? "") }));
       if (Array.isArray(delta.methods)) {
         for (const m of delta.methods) {
           const action = String(m.action || "learn");
@@ -820,18 +757,7 @@ function makeApplyBattle(ledger) {
       if (typeof delta.breakthroughDelta === "number" && delta.breakthroughDelta !== 0) {
         w.stats.breakBonus = (w.stats.breakBonus ?? 0) + delta.breakthroughDelta / 100;
       }
-      if (Array.isArray(delta.pills)) {
-        for (const p of delta.pills) {
-          const amt = Math.floor(Number(p.amount) || 0);
-          if (amt > 0) {
-            const eff = String(p.effectType || "heal");
-            const realm = String(p.realm || "\u51E1\u4EBA");
-            const existing = w.stats.pills.find((pp) => pp.name === p.name && pp.effectType === eff && pp.realm === realm);
-            if (existing) existing.amount += amt;
-            else w.stats.pills.push({ name: String(p.name), effectType: eff, realm, power: Number(p.power) || 10, amount: amt, source: "delta" });
-          }
-        }
-      }
+      if (Array.isArray(delta.bag)) w.stats.bag = delta.bag.map((it) => ({ name: String(it.name ?? ""), desc: String(it.desc ?? "") }));
       if (Array.isArray(delta.methods)) {
         for (const m of delta.methods) {
           const action = String(m.action || "learn");
@@ -914,31 +840,128 @@ function createRules(ledger) {
 
 // src/views.ts
 function createViews(rules) {
-  const statusOf = (w) => rules.fmtStatus(w);
+  function statusCard(w) {
+    const s = w.stats;
+    const breakRate = Math.round(calcBreakthroughRate(w).rate * 100);
+    return {
+      component: "Card",
+      props: {
+        title: `${s.name || "\u65E0\u540D"} \xB7 ${fmtRealm(w)} \xB7 ${s.location} \xB7 ${fmtTime(w)}`,
+        titleAlign: "center",
+        collapsible: true,
+        defaultCollapsed: true
+      },
+      children: [
+        { component: "Progress", props: { label: "\u4FEE\u4E3A", value: s.cultivation, max: cultivationCap(w) } },
+        { component: "Progress", props: { label: "\u4F53\u529B", value: s.hp, max: s.maxHp, color: s.hp / Math.max(1, s.maxHp) < 0.3 ? "danger" : "default" } },
+        {
+          component: "Row",
+          props: { className: "gap-1.5 flex-wrap" },
+          children: [
+            { component: "Badge", props: { icon: "Coins", text: `\u7075\u77F3 ${s.spiritStones}`, variant: "plain", className: "bg-sky-500/15 text-sky-600 dark:text-sky-400" } },
+            { component: "Badge", props: { icon: "Hourglass", text: `\u5BFF\u5143 ${Math.floor(s.lifespan)} \u5E74`, variant: "plain", className: "bg-violet-500/15 text-violet-600 dark:text-violet-400" } },
+            { component: "Badge", props: { icon: "BookOpen", text: `\u4E3B\u4FEE ${s.mainMethod || "\u65E0"}`, variant: "plain", className: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400" } },
+            { component: "Badge", props: { icon: "TrendingUp", text: `\u7A81\u7834\u7387 ${breakRate}%`, variant: "plain", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" } }
+          ]
+        },
+        ...s.talents?.length ? [{
+          component: "Card",
+          props: { title: "\u5929\u8D44" },
+          children: s.talents.map((t) => ({
+            component: "Row",
+            props: { className: "items-start gap-1.5" },
+            children: [
+              { component: "Badge", props: { text: String(t.name), variant: t.quality === "\u51F6" ? "danger" : "success" } },
+              { component: "Text", props: { content: String(t.description ?? ""), size: "sm" } }
+            ]
+          }))
+        }] : [],
+        ...s.bag?.length ? [{
+          component: "Card",
+          props: { title: "\u50A8\u7269\u888B" },
+          // 每物品一枚带边框徽章（名称含数量 + 描述并入，wrap 折行），流式排列
+          children: [{
+            component: "Row",
+            props: { className: "gap-1.5 flex-wrap" },
+            children: s.bag.map((it) => ({
+              component: "Badge",
+              props: {
+                text: it.desc ? `${it.name}\uFF1A${it.desc}` : it.name,
+                variant: "plain",
+                wrap: true,
+                className: "bg-slate-500/20 border-slate-500/40 text-slate-600 dark:text-slate-300"
+              }
+            }))
+          }]
+        }] : []
+      ]
+    };
+  }
+  function choiceButtons(opts) {
+    const rows = [{ component: "Divider", props: {} }, { component: "Text", props: { content: "\u4F60\u6B32\u4F55\u4E3A\uFF1F", size: "sm" } }];
+    for (let i = 0; i < opts.length; i += 2) {
+      const row = opts.slice(i, i + 2);
+      rows.push({
+        component: "Row",
+        props: { className: "gap-2 flex-wrap" },
+        children: row.map((o) => ({
+          component: "Button",
+          props: { content: o.text, action: { type: "send", text: o.text } }
+        }))
+      });
+    }
+    return rows;
+  }
   function buildWorldScreen(ctx) {
     const w = ctx.state._w;
     const world = w.stats.world;
-    const children = [
-      { component: "Text", props: { content: `\u4E16\u754C \xB7 ${String(world?.name || "\u672A\u77E5\u5927\u9646")}`, size: "lg" } },
-      { component: "Divider", props: {} }
+    const regions = world?.regions || [];
+    const sects = world?.sects || [];
+    const towns = world?.towns || [];
+    const law = world?.law ? String(world.law) : "";
+    const rumor = world?.rumor ? String(world.rumor) : "";
+    const regionCards = regions.map((region) => {
+      const inRegion = sects.filter((s) => String(s.location ?? "").includes(region));
+      return {
+        component: "Card",
+        props: { title: region, titleAlign: "center" },
+        children: inRegion.length ? [{ component: "List", props: { items: inRegion.map((s) => `${s.name}\uFF08${s.stance}\xB7${s.location}\uFF09`) } }] : [{ component: "Text", props: { content: "\u6682\u65E0\u5B97\u95E8\u9A7B\u624E", size: "sm" } }]
+      };
+    });
+    const orphans = sects.filter((s) => !regions.some((r) => String(s.location ?? "").includes(r)));
+    if (orphans.length) {
+      regionCards.push({
+        component: "Card",
+        props: { title: "\u6563\u843D\u5404\u5730", titleAlign: "center" },
+        children: [{ component: "List", props: { items: orphans.map((s) => `${s.name}\uFF08${s.stance}\xB7${s.location}\uFF09`) } }]
+      });
+    }
+    const infoLine = (word, content, color) => ({
+      component: "Row",
+      props: { className: "items-start gap-1.5" },
+      children: [
+        { component: "Badge", props: { text: word, variant: "plain", className: color } },
+        { component: "Text", props: { content, size: "sm" } }
+      ]
+    });
+    const infoChildren = [
+      ...regionCards,
+      ...law ? [infoLine("\u6CD5\u5219", law, "bg-indigo-500/15 border-transparent text-indigo-600 dark:text-indigo-400")] : [],
+      ...towns.length ? [infoLine("\u57CE\u9547", towns.map((t) => t.name).join("\u3001"), "bg-sky-500/15 border-transparent text-sky-600 dark:text-sky-400")] : [],
+      ...rumor ? [infoLine("\u4F20\u95FB", rumor, "bg-amber-500/15 border-transparent text-amber-600 dark:text-amber-400")] : []
     ];
-    if (world) {
-      const regions = world.regions || [];
-      if (regions.length) children.push({ component: "Text", props: { content: `\u5730\u57DF\uFF1A${regions.join("\u3001")}`, size: "sm" } });
-      const sects = world.sects || [];
-      if (sects.length) children.push({ component: "Text", props: { content: `\u5B97\u95E8\uFF1A${sects.map((s) => `${s.name}\uFF08${s.stance}\xB7${s.location}\uFF09`).join("\u3001")}`, size: "sm" } });
-      const towns = world.towns || [];
-      if (towns.length) children.push({ component: "Text", props: { content: `\u57CE\u9547\uFF1A${towns.map((t) => t.name).join("\u3001")}`, size: "sm" } });
-      if (world.law) children.push({ component: "Text", props: { content: `\u6CD5\u5219\uFF1A${String(world.law)}`, size: "sm" } });
-      if (world.rumor) children.push({ component: "Text", props: { content: `\u4F20\u95FB\uFF1A${String(world.rumor)}`, size: "sm" } });
-    }
-    if (w.majorEvents.length) {
-      children.push({ component: "Divider", props: {} });
-      children.push({ component: "Text", props: { content: "\u5927\u4E8B\u4EF6", size: "sm" } });
-      for (const e of w.majorEvents) {
-        children.push({ component: "Text", props: { content: `${e.name}\uFF08${e.type}\uFF09\u7B2C${e.at}\u6708\u2192${e.by}\u6708\uFF1A${e.summary}`, size: "sm" } });
+    const children = [
+      {
+        component: "Card",
+        props: {
+          title: `\u4E16\u754C \xB7 ${String(world?.name || "\u672A\u77E5\u5927\u9646")}`,
+          collapsible: true,
+          defaultCollapsed: true,
+          titleAlign: "center"
+        },
+        children: infoChildren
       }
-    }
+    ];
     return { component: "Column", props: { className: "gap-2" }, children };
   }
   function buildFirstScreen(ctx) {
@@ -947,33 +970,27 @@ function createViews(rules) {
     const opening = ctx.data.opening;
     const opts = opening?.options || [];
     const children = [
-      { component: "Text", props: { content: `\u540D\u5B57\u300C${s.name || "\u65E0\u540D"}\u300D\xB7 ${s.gender || ""}${s.temperament ? `\xB7${s.temperament}` : ""} \xB7 ${s.location}`, size: "lg" } },
+      statusCard(w),
       { component: "Divider", props: {} },
-      { component: "Text", props: { content: opening?.text || "", size: "md" } },
-      { component: "Divider", props: {} },
-      { component: "Text", props: { content: statusOf(w), size: "sm" } }
+      { component: "Text", props: { content: opening?.text || "", size: "md" } }
     ];
     const nearbyFirst = s.characters.filter((c) => c.location === s.location && (c.affinity > 0 || c.relationship !== "\u65E0"));
     if (nearbyFirst.length) {
       children.push({ component: "Divider", props: {} });
-      children.push({ component: "Text", props: { content: `\u9644\u8FD1\u4E4B\u4EBA\uFF1A${nearbyFirst.slice(0, 5).map((c) => `${c.name}\uFF08${c.identity}\uFF09${affinityLabel(c.affinity)}${c.relationship !== "\u65E0" ? `\xB7${c.relationship}` : ""}`).join("\u3001")}`, size: "sm" } });
-    }
-    children.push({ component: "Divider", props: {} });
-    children.push({ component: "Text", props: { content: "\u4F60\u6B32\u4F55\u4E3A\uFF1F", size: "sm" } });
-    for (let i = 0; i < opts.length; i += 2) {
-      const row = opts.slice(i, i + 2);
+      children.push({ component: "Text", props: { content: "\u9644\u8FD1\u4E4B\u4EBA", size: "sm" } });
       children.push({
         component: "Row",
-        props: { className: "gap-2 flex-wrap" },
-        children: row.map((o) => ({
-          component: "Button",
+        props: { className: "gap-1.5 flex-wrap" },
+        children: nearbyFirst.slice(0, 6).map((c) => ({
+          component: "Badge",
           props: {
-            content: o.text,
-            action: { type: "send", text: o.text }
+            text: `${c.name} \xB7 ${c.identity}${c.relationship !== "\u65E0" ? ` \xB7 ${c.relationship}` : ""}`,
+            variant: c.affinity >= 50 ? "success" : "default"
           }
         }))
       });
     }
+    children.push(...choiceButtons(opts));
     return { component: "Column", props: { className: "gap-2" }, children };
   }
   function buildPlayScreen(ctx) {
@@ -983,25 +1000,41 @@ function createViews(rules) {
     const battleBeat = ctx.data.battleConfrontation ?? ctx.data.battle;
     const beat = battleBeat?.text ? battleBeat : ctx.data.breakthrough ?? ctx.data.turn;
     const opts = ctx.data.choice?.options || ctx.data.turn?.options || [];
-    const children = [
-      { component: "Text", props: { content: `${rules.fmtRealm(w)} \xB7 ${s.location} \xB7 ${fmtTime(w)}`, size: "lg" } },
-      { component: "Divider", props: {} }
-    ];
+    const children = [];
+    children.push(statusCard(w));
+    children.push({ component: "Divider", props: {} });
     const actives = w.majorEvents.filter((e) => e.status === "active");
     if (actives.length) {
-      children.push({ component: "Text", props: { content: "\u3010\u8FDB\u884C\u4E2D\u7684\u5927\u4E8B\u4EF6\u3011", size: "sm" } });
-      for (const e of actives) {
-        children.push({ component: "Text", props: { content: `\u26A1 ${e.name}\uFF08${e.type}\uFF09\u7B2C${e.by}\u6708\u524D\u987B\u4E86\u7ED3\uFF1A${e.summary}`, size: "sm" } });
-      }
+      children.push({
+        component: "Card",
+        props: { title: "\u8FDB\u884C\u4E2D\u7684\u5927\u4E8B\u4EF6" },
+        children: actives.map((e) => ({
+          component: "Row",
+          props: { className: "items-center gap-1.5" },
+          children: [
+            { component: "Badge", props: { icon: "Hourglass", text: `\u7B2C${e.by}\u6708\u524D`, variant: "warning" } },
+            { component: "Text", props: { content: `${e.name}\uFF08${e.type}\uFF09\uFF1A${e.summary}`, size: "sm" } }
+          ]
+        }))
+      });
       children.push({ component: "Divider", props: {} });
     }
-    children.push({ component: "Text", props: { content: statusOf(w), size: "sm" } });
-    children.push({ component: "Divider", props: {} });
     if (beat?.text) children.push({ component: "Text", props: { content: beat.text, size: "md" } });
     const nearby = s.characters.filter((c) => c.location === s.location && (c.affinity > 0 || c.relationship !== "\u65E0"));
     if (nearby.length) {
       children.push({ component: "Divider", props: {} });
-      children.push({ component: "Text", props: { content: `\u9644\u8FD1\u4E4B\u4EBA\uFF1A${nearby.slice(0, 5).map((c) => `${c.name}\uFF08${c.identity}\uFF09${affinityLabel(c.affinity)}${c.relationship !== "\u65E0" ? `\xB7${c.relationship}` : ""}`).join("\u3001")}`, size: "sm" } });
+      children.push({ component: "Text", props: { content: "\u9644\u8FD1\u4E4B\u4EBA", size: "sm" } });
+      children.push({
+        component: "Row",
+        props: { className: "gap-1.5 flex-wrap" },
+        children: nearby.slice(0, 6).map((c) => ({
+          component: "Badge",
+          props: {
+            text: `${c.name} \xB7 ${c.identity}${c.relationship !== "\u65E0" ? ` \xB7 ${c.relationship}` : ""}`,
+            variant: c.affinity >= 50 ? "success" : "default"
+          }
+        }))
+      });
     } else {
       const dao = s.characters.filter((c) => c.relationship === "\u9053\u4FA3");
       if (dao.length) {
@@ -1009,34 +1042,23 @@ function createViews(rules) {
         children.push({ component: "Text", props: { content: `\u9053\u4FA3\uFF1A${dao.map((c) => `${c.name}\uFF08${c.identity}\uFF09`).join("\u3001")}`, size: "sm" } });
       }
     }
-    if (opts.length) {
-      children.push({ component: "Divider", props: {} });
-      children.push({ component: "Text", props: { content: "\u4F60\u6B32\u4F55\u4E3A\uFF1F", size: "sm" } });
-      for (let i = 0; i < opts.length; i += 2) {
-        const row = opts.slice(i, i + 2);
-        children.push({
-          component: "Row",
-          props: { className: "gap-2 flex-wrap" },
-          children: row.map((o) => ({
-            component: "Button",
-            props: {
-              content: o.text,
-              action: { type: "send", text: o.text }
-            }
-          }))
-        });
-      }
-    }
+    if (opts.length) children.push(...choiceButtons(opts));
     return { component: "Column", props: { className: "gap-2" }, children };
   }
   function buildDeathScreen(ctx) {
     const w = ctx.state._w;
     const battleText = ctx.data.battleConfrontation?.text || "";
     const children = [
-      { component: "Text", props: { content: "\u8EAB\u6B7B\u9053\u6D88", size: "lg" } },
+      {
+        component: "Row",
+        props: { className: "items-center gap-1.5" },
+        children: [
+          { component: "Icon", props: { name: "Skull", size: 16 } },
+          { component: "Badge", props: { text: "\u8EAB\u6B7B\u9053\u6D88", variant: "danger" } }
+        ]
+      },
       { component: "Divider", props: {} },
       ...battleText ? [{ component: "Text", props: { content: battleText, size: "md" } }] : [],
-      ...battleText ? [{ component: "Divider", props: {} }] : [],
       { component: "Text", props: { content: w.meta.deathCause || "\u4F60\u6B7B\u4E86\u3002", size: "md" } },
       { component: "Divider", props: {} },
       { component: "Text", props: { content: `\u5386 ${w.meta.turns} \u56DE\u5408 \xB7 \u5883\u754C ${rules.fmtRealm(w)} \xB7 \u4F60\u957F\u7720\u4E8E${w.stats.location || "\u65E0\u540D\u4E4B\u5730"}\u3002`, size: "sm" } },
@@ -1095,7 +1117,7 @@ function resetCharacter(ctx) {
   w.stats.methods = [];
   w.stats.mainMethod = null;
   w.stats.talents = null;
-  w.stats.pills = [];
+  w.stats.bag = [];
   w.stats.breakBonus = 0;
 }
 
@@ -1196,36 +1218,22 @@ var METHOD_SCHEMA = {
   required: ["name", "grade", "techniques"],
   description: "\u5355\u90E8\u529F\u6CD5\uFF0C\u542B\u54C1\u9636\u4E0E\u672F\u6CD5"
 };
-var PILL_SCHEMA = {
-  type: "object",
-  properties: {
-    name: { type: "string", description: "\u4E39\u836F\u540D\uFF0C\u5982\u201C\u805A\u6C14\u4E39\u201D" },
-    effectType: { type: "string", enum: [...PILL_EFFECTS], description: "\u4E39\u836F\u6548\u679C\u7C7B\u578B\uFF1Acultivation \u4FEE\u4E3A/breakthrough \u63D0\u9AD8\u7A81\u7834\u51E0\u7387/heal \u56DE\u8840/lifespan \u5EF6\u5BFF" },
-    power: { type: "number", minimum: 1, description: "\u4E39\u836F\u6548\u529B\u6570\u503C\uFF0C\u6B63\u6570\uFF0C\u6309\u5883\u754C\u8870\u51CF" },
-    realm: { type: "string", enum: [...REALM_ORDER], description: "\u4E39\u836F\u5BF9\u5E94\u5883\u754C\uFF0C\u51E1\u4EBA/\u7EC3\u6C14/\u7B51\u57FA/\u91D1\u4E39/\u5143\u5A74/\u5316\u795E" }
-  },
-  required: ["name", "effectType", "power", "realm"],
-  description: "\u5355\u7C92\u4E39\u836F\u5B9A\u4E49"
-};
 var DELTA_SCHEMA = {
   type: "object",
   properties: {
     spiritStones: { type: "integer", description: "\u7075\u77F3\u53D8\u5316\uFF0C\u6B63\u5F97\u8D1F\u8017\uFF0C\u65E0\u4E0A\u9650" },
     cultivation: { type: "integer", description: "\u4FEE\u4E3A\u53D8\u5316\uFF0C\u6B63\u5F97\u8D1F\u8017\uFF0C\u65E0 cap\uFF0CLLM \u636E\u5F53\u524D\u4FEE\u4E3A/\u4E0A\u9650\u81EA\u5B9A" },
     breakthroughDelta: { type: "number", description: "\u4E0B\u6B21\u7A81\u7834\u7387\u53D8\u5316\uFF0C\u6B63\u52A0\u8D1F\u51CF\uFF0C\u65E0 cap\uFF0C\u9ED8\u8BA4\u7A81\u7834\u6982\u7387\uFF1A\u51E1\u4EBA60%/\u7EC3\u6C1420%/\u7B51\u57FA15%/\u91D1\u4E3910%/\u5143\u5A748%/\u5316\u795E5%\uFF0C\u5929\u8D44\u5409\u51F6\u4F1A\u63D0\u4EA4\u6216\u964D\u4F4E\uFF0C\u5DF2\u901A\u8FC7\u56FA\u5B9A\u8BA1\u7B97\u8BA1\u5165" },
-    pills: {
+    bag: {
       type: "array",
-      description: "\u4E39\u836F\u5F97\u5931\u5217\u8868\uFF0Camount \u6B63\u5F97\u8D1F\u8017",
+      description: "\u50A8\u7269\u888B\uFF1A\u8F93\u51FA\u53D8\u66F4\u540E\u7684\u5B8C\u6574\u50A8\u7269\u888B\u5185\u5BB9\uFF0C\u65E0\u53D8\u5316\u5219\u7701\u7565\u672C\u5B57\u6BB5",
       items: {
         type: "object",
         properties: {
-          name: { type: "string", description: "\u4E39\u836F\u540D" },
-          amount: { type: "integer", description: "\u6B63\u6570\u4E3A\u5F97\u8D1F\u4E3A\u8017\uFF0C1 \u8868\u793A\u5F971\u7C92\u6216\u80171\u7C92" },
-          effectType: { type: "string", enum: [...PILL_EFFECTS], description: "\u4E39\u836F\u6548\u679C\u7C7B\u578B" },
-          realm: { type: "string", enum: [...REALM_ORDER], description: "\u4E39\u836F\u5883\u754C" },
-          power: { type: "number", minimum: 1, description: "\u4E39\u836F\u6548\u529B" }
+          name: { type: "string", description: "\u7269\u54C1\u540D\uFF08\u53EF\u542B\u6570\u91CF\uFF0C\u5982 \u56DE\u6625\u4E39\xD72\uFF09" },
+          desc: { type: "string", description: "\u4E00\u53E5\u8BDD\u7B80\u8FF0\uFF0C\u5982 \u4F24\u540E\u670D\u7528\u53EF\u56DE\u590D\u4F53\u529B" }
         },
-        required: ["name", "amount", "effectType", "realm"]
+        required: ["name", "desc"]
       }
     },
     methods: {
@@ -1260,7 +1268,18 @@ var ORIGIN_SCHEMA = {
       properties: {
         spiritStones: { type: "number", minimum: 0, maximum: 500, description: "\u521D\u59CB\u7075\u77F3 0-50\uFF0C\u51E1\u4EBA\u65E0\u4ED9\u7F18\u5B9C0" },
         methods: { type: "array", items: METHOD_SCHEMA, description: "\u521D\u59CB\u529F\u6CD5\u5217\u8868" },
-        pills: { type: "array", items: PILL_SCHEMA, description: "\u521D\u59CB\u4E39\u836F\u5217\u8868" }
+        bag: {
+          type: "array",
+          description: "\u521D\u59CB\u50A8\u7269\u888B\uFF080-6 \u4EF6\uFF09",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "\u7269\u54C1\u540D\uFF08\u53EF\u542B\u6570\u91CF\uFF0C\u5982 \u4E09\u5757\u788E\u7389\uFF09" },
+              desc: { type: "string", description: "\u4E00\u53E5\u8BDD\u7B80\u8FF0\uFF0C\u5982 \u7236\u4EB2\u7559\u4E0B\u7684\u552F\u4E00\u9057\u7269" }
+            },
+            required: ["name", "desc"]
+          }
+        }
       }
     },
     npcs: {
@@ -1970,6 +1989,7 @@ function registerTools(api, ledger, rules) {
         required: ["text"]
       },
       silent: false,
+      autoYield: true,
       transformPrompt: (result) => {
         if (!result.ok) return failPrompt("game_turn", result.error);
         const state = result.result?.render;
@@ -1998,6 +2018,7 @@ function registerTools(api, ledger, rules) {
         required: ["text"]
       },
       silent: false,
+      autoYield: true,
       transformPrompt: (result) => {
         if (!result.ok) return failPrompt("game_battle", result.error);
         const state = result.result?.render;
@@ -2026,6 +2047,7 @@ function registerTools(api, ledger, rules) {
         required: ["text"]
       },
       silent: false,
+      autoYield: true,
       transformPrompt: (result) => {
         if (!result.ok) return failPrompt("game_breakthrough", result.error);
         const state = result.result?.render;

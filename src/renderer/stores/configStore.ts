@@ -34,7 +34,6 @@ export const useConfigStore = create<ConfigStore>()(
         model: null,
         baseURL: null,
         theme: null,
-        fontSize: null,
         locale: null,
       })
       set({ config })

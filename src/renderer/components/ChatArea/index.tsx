@@ -168,7 +168,7 @@ export default forwardRef<ChatAreaHandle, ChatAreaProps>(function ChatArea({ onS
                 id={`msg-${msg.id}`}
                 className={cn('flex w-full', msg.role === 'user' ? 'justify-end' : 'justify-start')}
               >
-                <div className={cn('group max-w-[min(85%,42rem)] space-y-1', msg.role === 'user' ? 'rounded-3xl bg-[var(--app-user-bubble)] p-4' : '')}>
+                <div className={cn('group max-w-[min(85%,42rem)] space-y-1', msg.role === 'user' ? 'rounded-3xl bg-[var(--app-user-bubble)] p-4' : msg.widgetNode ? 'w-full' : '')}>
                   {msg.role === 'assistant' ? (
                     // 有 widgetNode 的用 widget-system 渲染
                     msg.widgetNode ? (

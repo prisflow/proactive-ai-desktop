@@ -68,8 +68,6 @@
     "model": "Model",
     "baseUrl": "Base URL",
     "baseUrlPlaceholder": "Leave empty for default",
-    "fontSize": "Font Size",
-    "fontSizeHint": "px",
     "plugins": "Plugins",
     "importPlugin": "Import Plugin",
     "importPluginHint": "Import a plugin from a zip package (auto-loaded after install)",

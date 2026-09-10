@@ -95,7 +95,7 @@ export function WidgetProgress({ label, value = 0, max = 100, color = 'default',
           <span>{value}/{max}</span>
         </div>
       )}
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/20 dark:bg-white/20">
         <div className={`h-full rounded-full ${bar[color] || bar.default}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -136,27 +136,60 @@ export function WidgetTable({ columns, rows, className }: AtomProps & {
   )
 }
 
-/** 卡片。带边框与内边距的语义化分组容器，可选标题。 */
-export function WidgetCard({ title, children, className }: AtomProps & { title?: string; children?: React.ReactNode }) {
+/** 卡片。带边框与内边距的语义化分组容器。标题可选；titleAlign 控制对齐（left/center）；
+ * collapsible 时标题行右侧显示展开/收起箭头（defaultCollapsed 定初始态），折叠时正文不渲染。 */
+export function WidgetCard({ title, titleAlign = 'left', collapsible, defaultCollapsed, children, className }: AtomProps & {
+  title?: string
+  titleAlign?: 'left' | 'center'
+  collapsible?: boolean
+  defaultCollapsed?: boolean
+  children?: React.ReactNode
+}) {
+  const [collapsed, setCollapsed] = useState(!!collapsible && !!defaultCollapsed)
+  const alignCls = titleAlign === 'center' ? 'text-center' : 'text-left'
+  const showHeader = !!title || !!collapsible
   return (
     <div className={`w-full rounded-xl border border-[var(--app-border)] p-3 ${className || ''}`}>
-      {title && <div className="mb-1.5 text-xs font-medium opacity-80">{title}</div>}
-      <div className="flex flex-col gap-1">{children}</div>
+      {showHeader && (
+        <div className={`relative mb-1.5 flex min-h-5 items-center ${alignCls}`}>
+          <div className={`flex-1 text-xs font-medium opacity-80 ${alignCls}`}>{title}</div>
+          {collapsible && (
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              className="absolute right-0 flex h-5 w-5 items-center justify-center rounded text-[var(--app-muted)] hover:bg-black/10 dark:hover:bg-white/10"
+              aria-label={collapsed ? '展开' : '收起'}
+            >
+              <icons.ChevronDown size={14} className={`transition-transform ${collapsed ? '' : 'rotate-180'}`} />
+            </button>
+          )}
+        </div>
+      )}
+      {!collapsed && <div className="flex flex-col gap-1">{children}</div>}
     </div>
   )
 }
 
 const BADGE_VARIANTS: Record<string, string> = {
-  default: 'bg-black/10 dark:bg-white/15',
-  success: 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400',
-  warning: 'bg-amber-500/20 text-amber-600 dark:text-amber-400',
-  danger: 'bg-red-500/20 text-red-600 dark:text-red-400',
+  default: 'bg-black/10 dark:bg-white/10 border-black/25 dark:border-white/25 text-[var(--app-fg)]',
+  plain: '',
+  success: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400',
+  warning: 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400',
+  danger: 'bg-red-500/15 border-red-500/40 text-red-600 dark:text-red-400',
 }
 
-/** 状态标签。行内小徽章。 */
-export function WidgetBadge({ text, variant = 'default', className }: AtomProps & { text?: string; variant?: 'default' | 'success' | 'warning' | 'danger' }) {
-  if (!text) return null
-  return <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] ${BADGE_VARIANTS[variant] || BADGE_VARIANTS.default} ${className || ''}`}>{text}</span>
+/** 状态标签。圆角方牌：variant 三件套 + 可选 lucide 图标前缀，与相邻文本垂直居中。
+ * 默认文字单行（nowrap）；wrap = true 时允许折行（长描述徽章用）。颜色可由 className 全权定义（plain = 零色类）。 */
+export function WidgetBadge({ text, icon, variant = 'default', wrap, className }: AtomProps & { text?: string; icon?: string; variant?: 'default' | 'plain' | 'success' | 'warning' | 'danger'; wrap?: boolean }) {
+  if (!text && !icon) return null
+  const I = icon ? (icons as Record<string, React.ComponentType<{ size?: number; className?: string }>>)[icon] : null
+  const v = variant in BADGE_VARIANTS ? BADGE_VARIANTS[variant] : BADGE_VARIANTS.default
+  return (
+    <span className={`inline-flex items-center gap-1 ${wrap ? 'whitespace-normal' : 'whitespace-nowrap'} rounded-md border px-2 py-0.5 text-[11px] font-medium ${v} ${className || ''}`}>
+      {I ? <I size={12} /> : null}
+      {text}
+    </span>
+  )
 }
 
 /** 列表。有序/无序。 */

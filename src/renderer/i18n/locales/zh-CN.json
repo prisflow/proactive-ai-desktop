@@ -68,8 +68,6 @@
     "model": "模型",
     "baseUrl": "Base URL",
     "baseUrlPlaceholder": "留空使用默认",
-    "fontSize": "字体大小",
-    "fontSizeHint": "px",
     "plugins": "插件",
     "importPlugin": "导入插件",
     "importPluginHint": "从 zip 包导入插件（安装后自动加载）",

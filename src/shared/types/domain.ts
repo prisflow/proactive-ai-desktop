@@ -15,8 +15,6 @@ export interface GlobalSettings {
   locale: 'zh-CN' | 'en-US' | null
   /** 界面主题：亮色 / 暗色 / 跟随系统。未设置为 null。 */
   theme: 'light' | 'dark' | 'auto' | null
-  /** 消息区域字体大小（px）。未设置为 null。 */
-  fontSize: number | null
   /** 中继服务器地址（如 wss://play.example.com/relay）。未启用为 null。 */
   relayUrl: string | null
   /** 中继配对码（手机访问需 device + code 双匹配）。未设置为 null。 */
