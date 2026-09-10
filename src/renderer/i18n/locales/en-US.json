@@ -73,12 +73,12 @@
     "plugins": "Plugins",
     "importPlugin": "Import Plugin",
     "importPluginHint": "Import a plugin from a zip package (auto-loaded after install)",
-    "importPluginSuccess": "Plugin \"{name}\" v{version} imported successfully",
+    "importPluginSuccess": "Plugin \"{{name}}\" v{{version}} imported successfully",
     "importPluginCanceled": "Import canceled",
-    "importPluginFailed": "Import failed: {error}",
+    "importPluginFailed": "Import failed: {{error}}",
     "uninstallPlugin": "Uninstall",
-    "uninstallPluginSuccess": "Plugin \"{name}\" uninstalled",
-    "uninstallPluginFailed": "Uninstall failed: {error}",
+    "uninstallPluginSuccess": "Plugin \"{{name}}\" uninstalled",
+    "uninstallPluginFailed": "Uninstall failed: {{error}}",
     "noPlugins": "No plugins installed. Import a zip package to get started.",
     "linkCopy": "Copy link",
     "linkCopied": "Link copied",
@@ -90,7 +90,7 @@
     "relayConnecting": "Connecting…",
     "relayOnline": "Online — phone can connect",
     "relayStop": "Disconnect",
-    "relayFailed": "Connect failed: {error}",
+    "relayFailed": "Connect failed: {{error}}",
     "relayQrHint": "Scan or open the link on your phone to continue the conversation."
   }
 }

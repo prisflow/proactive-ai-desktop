@@ -73,12 +73,12 @@
     "plugins": "插件",
     "importPlugin": "导入插件",
     "importPluginHint": "从 zip 包导入插件（安装后自动加载）",
-    "importPluginSuccess": "插件「{name}」v{version} 导入成功",
+    "importPluginSuccess": "插件「{{name}}」v{{version}} 导入成功",
     "importPluginCanceled": "已取消导入",
-    "importPluginFailed": "导入失败：{error}",
+    "importPluginFailed": "导入失败：{{error}}",
     "uninstallPlugin": "卸载",
-    "uninstallPluginSuccess": "插件「{name}」已卸载",
-    "uninstallPluginFailed": "卸载失败：{error}",
+    "uninstallPluginSuccess": "插件「{{name}}」已卸载",
+    "uninstallPluginFailed": "卸载失败：{{error}}",
     "noPlugins": "暂无已安装插件，可从 zip 包导入。",
     "linkCopy": "复制链接",
     "linkCopied": "链接已复制",
@@ -90,7 +90,7 @@
     "relayConnecting": "连接中…",
     "relayOnline": "已在线，手机可访问",
     "relayStop": "断开",
-    "relayFailed": "连接失败：{error}",
+    "relayFailed": "连接失败：{{error}}",
     "relayQrHint": "手机扫码或打开链接即可继续当前对话。"
   }
 }
