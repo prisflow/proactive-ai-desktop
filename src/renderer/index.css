@@ -1,2 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* dark: 变体绑定应用内主题（data-theme），而非 OS 媒体查询——
+ * 使 Tailwind dark: 类与 CSS 变量层（html[data-theme] → --app-*）同源，
+ * 修复「系统深色 + 应用浅色」时 dark: 类错误生效的错位。 */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* 徽章调色板契约：插件推送的 UI 仅可使用此封闭色板内的颜色类（色板外不渲染 = fail-fast）。
+ * 声明式强制生成，与插件仓库是否存在/构建环境无关（CI 稳定）。扩展颜色 = 扩此矩阵。 */
+@source inline("{,dark:}{bg,border,text}-{slate,sky,violet,indigo,emerald,amber,red}-{200,300,400,500,600,700}{,/15,/20,/40}");
