@@ -3,7 +3,7 @@
  * enter/exit 由 host_enter/exit_subcontext 工具成功路径驱动（ToolRunner 调用），
  * 操作宿主的历史 / 挂起区 / 活跃上下文。单层语义：同时只允许一个子上下文。
  */
-import { systemNote, type LlmMessage, type LlmProvider } from '../../llm'
+import { systemNote, llmContentToText, type LlmMessage, type LlmProvider } from '../../llm'
 import { logService, uniqueRunId } from '../../../services/logger'
 import type { RuntimeHost, PendingDbRecord } from './host'
 
@@ -101,13 +101,15 @@ export class SubcontextManager {
     // 子上下文期间对话总结（LLM 失败降级为最后一条 assistant 文本）。
     // 素材 = 子上下文历史（而非镜像）：有压缩兜底（compactIfNeeded 作用于活跃上下文）+
     // DB 持久化恢复（重启后 histories 完整），总结素材天然有界且跨重启不丢。
+    // 提示词 = 插件口径优先：活跃（子）上下文配置了 compaction.summaryPrompt 则按插件的世界口径压缩剧情。
     let summary: string
     const subHistory = this.host.histories.get(subCtxId) ?? []
+    const pluginSummaryPrompt = this.host.activeDef?.compaction?.summaryPrompt
     try {
-      summary = await this.summarize(subHistory)
+      summary = await this.summarize(subHistory, pluginSummaryPrompt)
     } catch {
       summary = subHistory.length
-        ? (subHistory[subHistory.length - 1].content || '[子上下文期间无新内容]')
+        ? (llmContentToText(subHistory[subHistory.length - 1].content) || '[子上下文期间无新内容]')
         : '[子上下文期间无新内容]'
     }
     logService.log('info', undefined, {
@@ -146,12 +148,21 @@ export class SubcontextManager {
     this.host.pushContextSwitch()
   }
 
-  /** 把子上下文期间消息总结为紧凑摘要（供主上下文继续对话参考）。 */
-  private async summarize(messages: LlmMessage[]): Promise<string> {
-    const text = messages.map((m) => `[${m.role}] ${m.content || ''}`).join('\n')
+  /**
+   * 把子上下文期间消息总结为紧凑摘要（供主上下文继续对话参考）。
+   * @param pluginSummaryPrompt 插件配置的压缩指令（compaction.summaryPrompt）——存在时按插件世界口径总结，
+   *   但保留移交约束（退出标注/旁观视角），防止主上下文误以为仍在子上下文中。
+   */
+  private async summarize(messages: LlmMessage[], pluginSummaryPrompt?: string): Promise<string> {
+    const text = messages.map((m) => `[${m.role}] ${llmContentToText(m.content)}`).join('\n')
     if (!text.trim()) return '[子上下文期间无新内容]'
+    const system = pluginSummaryPrompt
+      ? pluginSummaryPrompt +
+        '\n（本次总结将作为子上下文退出时的移交报告：开头注明"已退出子上下文，回到主上下文"；' +
+        '以旁观视角陈述，不要以世界内角色口吻继续对话；只归纳事实，200字以内。）'
+      : CONTEXT_SUMMARY_SYSTEM
     const res = await this.llm.chat([
-      { role: 'system', content: CONTEXT_SUMMARY_SYSTEM },
+      { role: 'system', content: system },
       { role: 'user', content: text },
     ])
     if (res.kind === 'text' && res.text.trim()) return res.text.trim()

@@ -14,6 +14,7 @@
 import type { LlmProvider, LlmMessage } from '../../llm'
 import { validateToolInput } from '../tool/schema-validate'
 import { composeContextMessages } from '../chat-composer'
+import { logService, uniqueRunId } from '../../../services/logger'
 
 /** 图执行时的共享上下文：输入、节点间产物、状态、渲染通道。 */
 export interface FlowCtx {
@@ -50,6 +51,11 @@ export interface LlmNode {
   assign?: string
   /** 校验失败最大重试次数（默认 2）。 */
   maxTries?: number
+  /** 自我评审提示（0.7.0 路线图落地）：输出通过 schema 校验后，按此提示让 LLM 评审输出质量，
+   *  不通过（verdict.pass === false）则把评审结论回喂并重新生成，受 maxRetries 约束。 */
+  reviewPrompt?: string
+  /** 评审不通过的最大重新生成次数（默认 1）。 */
+  maxRetries?: number
   /** 单次 LLM 输出 token 上限（覆盖默认 4096；大输出场景如世界生成需提高以免截断）。 */
   maxTokens?: number
 }
@@ -105,21 +111,62 @@ export class FlowHost {
   private flows = new Map<string, FlowDefinition>()
   private generateImpl: LlmProvider | null = null
 
-  /** 注册图定义。同名不可重复注册。 */
+  /** 注册图定义。同名冲突：warn + 覆盖（reload 幂等——静默 false 会让热重载后旧定义钉死，"改了不生效"）。
+   *  定义结构非法时 throw 精确原因（setup 失败 → plugin_reload 错误原文回喂 LLM 自修）——
+   *  注册零校验会让坏定义潜伏到执行时才炸（2026-09-12 bookstore_love：render 节点字段名写错，试跑"全绿"实为 UI 从未渲染）。 */
   register(def: FlowDefinition): boolean {
-    if (this.flows.has(def.name)) return false
+    const problem = this.validateFlowDef(def)
+    if (problem) throw new Error(problem)
+    if (this.flows.has(def.name)) {
+      logService.log('warn', undefined, {
+        runId: uniqueRunId('flow'),
+        name: 'flow.register',
+        message: `duplicate flow, replaced: ${def.name}`,
+      })
+    }
     this.flows.set(def.name, def)
     return true
+  }
+
+  /** FlowDefinition 结构校验。合法返回 null，非法返回精确原因。 */
+  private validateFlowDef(def: FlowDefinition): string | null {
+    if (!def || typeof def !== 'object') return 'flow 定义缺失'
+    if (typeof def.name !== 'string' || !def.name) return 'flow 缺少 name'
+    if (!Array.isArray(def.nodes)) return `flow "${def.name}": nodes 必须是数组`
+    for (let i = 0; i < def.nodes.length; i++) {
+      const n = def.nodes[i] as { type?: unknown; system?: unknown; input?: unknown; fn?: unknown; build?: unknown; when?: unknown; then?: unknown }
+      const at = `flow "${def.name}" nodes[${i}]`
+      if (!n || typeof n !== 'object') return `${at} 不是对象`
+      switch (n.type) {
+        case 'llm':
+          if (typeof n.system !== 'string' || !n.system) return `${at}: llm 节点缺少 system`
+          if (typeof n.input !== 'function') return `${at}: llm 节点缺少 input 函数`
+          break
+        case 'static':
+          if (typeof n.fn !== 'function') return `${at}: static 节点缺少 fn 函数`
+          break
+        case 'render':
+          if (typeof n.build !== 'function') return `${at}: render 节点缺少 build 函数（注意字段名是 build，不是 render）`
+          break
+        case 'condition':
+          if (typeof n.when !== 'function') return `${at}: condition 节点缺少 when 函数`
+          if (!Array.isArray(n.then)) return `${at}: condition 节点缺少 then 数组`
+          break
+        default:
+          return `${at}: 未知节点类型 "${String(n.type)}"（合法值：llm/static/render/condition）`
+      }
+    }
+    return null
+  }
+
+  /** 注销图定义（插件卸载/重载时由 loader 调用，防旧定义钉死）。 */
+  unregister(name: string): boolean {
+    return this.flows.delete(name)
   }
 
   /** 注入宿主 LLM（应用启动时由 loader 调用，配置变更后重建）。 */
   setLlmProvider(provider: LlmProvider | null): void {
     this.generateImpl = provider
-  }
-
-  /** 图是否已注册。 */
-  has(name: string): boolean {
-    return this.flows.has(name)
   }
 
   /**
@@ -131,6 +178,10 @@ export class FlowHost {
     input: string
     schema?: Record<string, unknown>
     maxTries?: number
+    /** 自我评审提示（0.7.0 路线图落地）：输出按此提示评审，不通过回喂重新生成 */
+    reviewPrompt?: string
+    /** 评审不通过的最大重新生成次数（默认 1） */
+    maxRetries?: number
   }): Promise<{ ok: true; text: string; data: unknown } | { ok: false; error: string }> {
     if (!this.generateImpl) return { ok: false, error: 'LLM provider 未就绪（请检查 API Key 配置）' }
     const node: LlmNode = {
@@ -139,6 +190,8 @@ export class FlowHost {
       input: () => input.input,
       schema: input.schema,
       maxTries: input.maxTries,
+      reviewPrompt: input.reviewPrompt,
+      maxRetries: input.maxRetries,
     }
     return this.generateWithRetry(node, input.input, undefined, undefined)
   }
@@ -216,6 +269,8 @@ export class FlowHost {
         if (!branch) return null
         return this.executeNodes(branch, ctx)
       }
+      default:
+        return `未知节点类型：${String((node as { type?: unknown }).type)}（合法值：llm/static/render/condition）`
     }
   }
 
@@ -250,6 +305,8 @@ export class FlowHost {
       })
 
     let lastError = '生成失败'
+    let reviewCount = 0
+    const maxReview = node.maxRetries ?? 1
     for (let i = 0; i <= maxTries; i++) {
       if (signal?.aborted) return { ok: false, error: '已中断（abort）' }
       let res: Awaited<ReturnType<LlmProvider['chat']>>
@@ -275,14 +332,37 @@ export class FlowHost {
         continue
       }
       if (!node.schema) {
-        return { ok: true, text: res.text, data: res.text }
+        if (!node.reviewPrompt) return { ok: true, text: res.text, data: res.text }
+        // reviewPrompt 自我评审（0.7.0 路线图）：不通过则回喂评审结论重新生成
+        reviewCount++
+        const verdict = await this.reviewStage(node.reviewPrompt, res.text, signal)
+        if (!verdict || verdict.pass) return { ok: true, text: res.text, data: res.text } // 评审器故障 fail-open
+        if (reviewCount > maxReview) {
+          return { ok: false, error: `LLM 节点「${node.system.slice(0, 20)}…」评审未通过（重试 ${maxReview} 次后）：${verdict.problems.join('；')}` }
+        }
+        lastError = `评审未通过：${verdict.problems.join('；')}`
+        messages.push({ role: 'assistant', content: res.text })
+        messages.push({ role: 'user', content: `你的输出未通过质量评审：${verdict.problems.join('；')}。请针对以上问题修正后重新输出。` })
+        continue
       } else {
         const parsed = this.parseJsonOutput(res.text)
         if (parsed === null) {
           lastError = `输出不是合法 JSON：${res.text.slice(0, 120)}`
         } else {
           const schemaErr = this.validateSchema(node.schema, parsed)
-          if (!schemaErr) return { ok: true, text: res.text, data: parsed }
+          if (!schemaErr) {
+            if (!node.reviewPrompt) return { ok: true, text: res.text, data: parsed }
+            reviewCount++
+            const verdict = await this.reviewStage(node.reviewPrompt, res.text, signal)
+            if (!verdict || verdict.pass) return { ok: true, text: res.text, data: parsed } // 评审器故障 fail-open
+            if (reviewCount > maxReview) {
+              return { ok: false, error: `LLM 节点「${node.system.slice(0, 20)}…」评审未通过（重试 ${maxReview} 次后）：${verdict.problems.join('；')}` }
+            }
+            lastError = `评审未通过：${verdict.problems.join('；')}`
+            messages.push({ role: 'assistant', content: res.text })
+            messages.push({ role: 'user', content: `你的输出未通过质量评审：${verdict.problems.join('；')}。请针对以上问题修正后重新输出。` })
+            continue
+          }
           lastError = `JSON 校验失败：${schemaErr}`
         }
       }
@@ -291,6 +371,37 @@ export class FlowHost {
       messages.push({ role: 'user', content: `输出不合法：${lastError}。请重新输出符合要求的内容。` })
     }
     return { ok: false, error: `LLM 节点「${node.system.slice(0, 20)}…」连续 ${maxTries + 1} 次输出不合法：${lastError}` }
+  }
+
+  /**
+   * reviewPrompt 评审阶段：按评审提示让 LLM 审查输出。
+   * @returns verdict（pass/problems）；null = 评审器自身失败（网络/解析）——fail-open 放行，不阻塞生成。
+   */
+  private async reviewStage(
+    reviewPrompt: string,
+    outputText: string,
+    signal?: AbortSignal,
+  ): Promise<{ pass: boolean; problems: string[] } | null> {
+    try {
+      const res = await this.generateImpl!.chat(
+        [
+          { role: 'system', content: reviewPrompt },
+          { role: 'user', content: `请评审以下输出：\n\n${outputText}` },
+        ] as LlmMessage[],
+        undefined,
+        signal,
+      )
+      if (res.kind !== 'text') return null
+      const parsed = this.parseJsonOutput(res.text)
+      if (parsed === null) return null
+      const verdict = parsed as { pass?: unknown; problems?: unknown }
+      return {
+        pass: verdict.pass === true,
+        problems: Array.isArray(verdict.problems) ? verdict.problems.map(String) : [],
+      }
+    } catch {
+      return null
+    }
   }
 
   /** 从 LLM 输出中提取 JSON（容忍 ```json 包裹、前后多余文字）。 */

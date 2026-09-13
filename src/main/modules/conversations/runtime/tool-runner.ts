@@ -164,9 +164,15 @@ export class ToolRunner {
       return tc.name === 'host_yield' ? 'stop' : 'ok'
     }
 
-    // 内存同步 + 收集待落库（不落库，由 agentLoop 统一写 DB）——同一来源（transformPrompt 产物）
-    this.emitToolResult(tc, prompt, pendingDb)
-    return prompt.success.error ? 'fail' : 'ok'
+    // autoYield 收轮引擎化（0.6.3 设计补实现，types.ts:53 语义）：执行 + transformPrompt 完成后
+    // 引擎直接收轮（等价 host_yield），成功时 instruction 不再回喂 LLM——收轮由引擎保证，
+    // 不依赖模型自觉（缺失会导致剧情 GM 自问自答连转，2026-09-11 cohabit 六连转事故）。
+    // 失败时不收轮：错误原文照常回喂，模型可修复重试。
+    const failed = Boolean(prompt.success.error)
+    const autoYield = def?.autoYield === true
+    this.emitToolResult(tc, prompt, pendingDb, autoYield && !failed)
+    if (autoYield) return failed ? 'fail' : 'stop'
+    return failed ? 'fail' : 'ok'
   }
 
   /**
@@ -175,18 +181,20 @@ export class ToolRunner {
    * 保证 assistant(tool_calls) 先落、tool-result/event-status 后落，且崩溃时内存数据不落库不产生孤儿）。
    * instruction（成功）或 error（失败）生成状态文本作为下一轮循环起点；
    * 无 instruction 且无 error 时状态文本为空（不落占位，避免污染历史）。
+   * @param suppressInstructionNote autoYield 成功路径传 true：instruction 不回喂（收轮由引擎保证）
    * @param pendingDb 待落库记录收集数组（由 agentLoop 传入，循环后统一写 DB）
    */
   private emitToolResult(
     tc: { id: string; name: string; args: string },
     prompt: ToolPromptResult,
     pendingDb: PendingDbRecord[],
+    suppressInstructionNote = false,
   ): void {
     const s = prompt.success
     // 状态文本：error → 失败回灌；无 error → 仅 instruction（无 instruction 则空）
     const statusText = s.error
       ? `工具 ${s.toolName} 执行失败：${s.error}。请重试该工具或改用其他工具。`
-      : (prompt.instruction ?? '')
+      : (suppressInstructionNote ? '' : (prompt.instruction ?? ''))
 
     const parts: string[] = []
     if (prompt.result?.text) parts.push(prompt.result.text)

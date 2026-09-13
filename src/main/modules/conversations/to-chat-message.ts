@@ -10,12 +10,14 @@
 import type { ChatMessage } from '../../../shared/types/domain'
 import type { WidgetNode, WidgetNodeType } from '../../../shared/types/ui'
 import type { MessageRecord } from '../../services/store/database'
+import { attachmentDisplayUrl, type SavedAttachment } from './attachments'
 
 export function toChatMessage(msg: MessageRecord): ChatMessage | null {
   const kind = (msg.extraData as { kind?: string; toolName?: string } | null)?.kind
   const toolName = (msg.extraData as { toolName?: string } | null)?.toolName
   const isContextSwitch = kind === 'tool-result' && (toolName === 'host_enter_subcontext' || toolName === 'host_exit_subcontext')
   if (!isContextSwitch && (kind === 'event-status' || kind === 'tool-result' || kind === 'compact-marker')) return null
+  const atts = (msg.extraData as { attachments?: SavedAttachment[] } | null)?.attachments
   const chatMsg: ChatMessage = {
     id: msg.id,
     role: msg.role === 'context' ? 'assistant' : 'user',
@@ -24,6 +26,9 @@ export function toChatMessage(msg: MessageRecord): ChatMessage | null {
     contextId: msg.contextId,
     kind: isContextSwitch ? 'context-switch' : null,
     widgetNode: null,
+    attachments: atts?.length
+      ? atts.map((a) => ({ url: attachmentDisplayUrl(msg.conversationId, a.file), mime: a.mime, name: a.name }))
+      : null,
   }
   // 切换占位：enter 的占位 contextId 是 null（归属 main），但标签需显示目标子上下文名。
   // 从占位 content 的 JSON 里解析目标 contextId 挂到 chatMsg.contextId

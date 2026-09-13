@@ -95,15 +95,19 @@ export interface PluginSetupAPI {
     /** 移除已注入的文本。 */
     remove(text: string): void
   }
-  /** 宿主 LLM 能力：结构化生成（schema 校验失败自动重试）。 */
+  /** 宿主 LLM 能力：结构化生成（schema 校验失败自动重试；支持自我评审）。 */
   llm: {
     /**
      * 调用宿主 LLM 生成内容。
      * 提供 schema 时要求输出 JSON 并按 schema 校验，失败自动回喂重试。
+     * 提供 reviewPrompt 时输出完成后按其自我评审，不通过（verdict.pass === false）则把
+     * 评审结论回喂并重新生成（受 maxRetries 约束，默认 1）——质量由引擎保证，不依赖模型自觉。
      * @param input.system 系统提示
      * @param input.input 用户输入
      * @param input.schema 可选的 JSON Schema（结构化输出）
      * @param input.maxTries 校验失败重试次数（默认 2）
+     * @param input.reviewPrompt 可选的自我评审提示（评审标准，如数值合理性/叙事质量）
+     * @param input.maxRetries 评审不通过的最大重新生成次数（默认 1）
      * @returns 成功返回 { ok:true, text, data }；失败返回 { ok:false, error }
      */
     generate(input: {
@@ -111,6 +115,8 @@ export interface PluginSetupAPI {
       input: string
       schema?: Record<string, unknown>
       maxTries?: number
+      reviewPrompt?: string
+      maxRetries?: number
     }): Promise<{ ok: true; text: string; data: unknown } | { ok: false; error: string }>
   }
   /** 回合执行器（图）：工具的 run() 内部实现设施，节点是原工具内容的程序化拆分。 */

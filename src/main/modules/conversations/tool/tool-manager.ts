@@ -16,17 +16,25 @@ export class ToolRegistry {
   private listeners = new Set<() => void>()
 
   /**
-   * 注册一个工具。同名不可重复注册。
+   * 注册一个工具。同名冲突：host_/plugin_ 前缀（宿主保留）拒绝，其余 warn + 覆盖（reload 幂等——
+   * 静默 false 会让热重载后的插件看似装载成功实则工具全部丢失，2026-09-11 runaway 事故诱因之一）。
    * 注册成功后通知所有订阅者。
    */
   register(def: ToolDefinition): boolean {
     if (this.tools.has(def.name)) {
+      if (def.name.startsWith('host_') || def.name.startsWith('plugin_')) {
+        logService.log('warn', undefined, {
+          runId: uniqueRunId('tool'),
+          name: 'tool.register',
+          message: `rejected: ${def.name} 是宿主保留前缀`,
+        })
+        return false
+      }
       logService.log('warn', undefined, {
         runId: uniqueRunId('tool'),
         name: 'tool.register',
-        message: `duplicate tool: ${def.name}`,
+        message: `duplicate tool, replaced: ${def.name}`,
       })
-      return false
     }
     this.tools.set(def.name, def)
     logService.log('info', undefined, {

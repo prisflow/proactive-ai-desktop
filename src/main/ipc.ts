@@ -7,13 +7,13 @@ import { getUsageTotals, getDailyUsage, getHourlyUsage, clearUsage } from './ser
 import type { ChatMessage, Conversation, GlobalSettings } from '@shared/types/domain'
 import type { LogQuery } from '@shared/types/log'
 import type { WidgetNode, WidgetNodeType } from '@shared/types/ui'
-import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
+import type { PluginImportResult, PluginInfo, PluginUninstallResult, PluginExportResult } from '@shared/types/plugin'
 import { runtimeManager } from './modules/conversations/runtime-manager'
 import { sendMessage } from './modules/conversations/send-message'
 import { toChatMessage } from './modules/conversations/to-chat-message'
 import { LlmProvider, type LlmConfig } from './modules/llm'
 import { flowHost } from './modules/conversations/flow/flow-host'
-import { importPluginFromZip, pluginLoader } from './modules/plugin'
+import { importPluginFromZip, pluginLoader, getPluginBrief, exportPluginToZip } from './modules/plugin'
 import type { MessageRecord } from './services/store/database'
 import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '@shared/constants'
 
@@ -94,9 +94,37 @@ export function registerIpc(): void {
 
   // 插件——卸载（注销上下文/工具 + 删文件）
   ipcMain.handle('plugins:uninstall', (_ev, entryName: string): PluginUninstallResult => {
-    const base = path.basename(entryName)
-    if (!base.endsWith('.js') || base !== entryName) return { ok: false, error: '非法的插件入口名' }
-    return pluginLoader.uninstallPlugin(entryName)
+    // 平铺（cultivation.js）与目录型（love/index.js）均接受；拒绝路径穿越/绝对路径/越级嵌套
+    const normalized = String(entryName).replace(/\\/g, '/')
+    const parts = normalized.split('/')
+    const valid =
+      normalized.endsWith('.js') &&
+      parts.length >= 1 &&
+      parts.length <= 2 &&
+      parts.every((p) => p && p !== '.' && p !== '..')
+    if (!valid) return { ok: false, error: '非法的插件入口名' }
+    return pluginLoader.uninstallPlugin(normalized)
+  })
+
+  // 插件——导出 zip（分享给他人导入）
+  // 用 entry 定位（与卸载同源）：目录型 entry = "<dir>/<file>.js"，平铺型 entry = "<name>.js"
+  // ——避免 manifest.id 与目录名/文件名不一致时的定位失败
+  ipcMain.handle('plugins:export', async (_ev, entryName: string): Promise<PluginExportResult> => {
+    const w = getMainWindow()
+    if (!w) return { ok: false, error: '窗口不可用' }
+    const normalized = String(entryName ?? '').replace(/\\/g, '/')
+    const key = normalized.includes('/') ? normalized.split('/')[0] : normalized.replace(/\.js$/i, '')
+    if (!key || key === '.' || key === '..' || key.includes('/')) return { ok: false, error: '非法的插件入口名' }
+    const pluginsDir = path.join(app.getPath('userData'), 'plugins')
+    const brief = getPluginBrief(key, pluginsDir)
+    if (!brief) return { ok: false, error: `插件不存在：${entryName}` }
+    const result = await dialog.showSaveDialog(w, {
+      title: '导出插件',
+      defaultPath: `${brief.id}-v${brief.version}.zip`,
+      filters: [{ name: '插件包 (zip)', extensions: ['zip'] }],
+    })
+    if (result.canceled || !result.filePath) return { ok: false, error: '已取消' }
+    return exportPluginToZip(key, pluginsDir, result.filePath)
   })
 
   // 全局配置
@@ -132,11 +160,18 @@ export function registerIpc(): void {
     return records.map(toChatMessage).filter((m): m is ChatMessage => m !== null)
   })
 
-  // 用户输入 → Runtime（流式）
-  ipcMain.handle('chat:send', async (_ev, conversationId: string, text: string): Promise<ChatMessage> => {
-    const record = await sendMessage(conversationId, text)
-    // 玩家输入记录不会是内部消息（event-status/tool-result/compact-marker），但类型上容错
-    return toChatMessage(record) ?? {
+  // 用户输入 → Runtime（流式；attachments 可选：dataURL 图片，落盘后随消息持久化并作多模态输入）
+  ipcMain.handle(
+    'chat:send',
+    async (
+      _ev,
+      conversationId: string,
+      text: string,
+      attachments?: Array<{ dataUrl: string; name?: string }>,
+    ): Promise<ChatMessage> => {
+      const record = await sendMessage(conversationId, text, attachments)
+      // 玩家输入记录不会是内部消息（event-status/tool-result/compact-marker），但类型上容错
+      return toChatMessage(record) ?? {
       id: record.id,
       role: 'user',
       content: record.content,

@@ -6,6 +6,7 @@
  *  - 产物写入 host_memory 的 summarySlot（覆盖，不无限追加）
  */
 import type { LlmMessage, LlmProvider } from '../../llm'
+import { llmContentToText } from '../../llm'
 import type { ContextCompactionConfig } from '../context/types'
 import { memoryGet, memorySet } from '../tool/memory-store'
 import { estimateTokens } from './token'
@@ -22,11 +23,11 @@ export interface CompactResult {
 function serialize(messages: LlmMessage[]): string {
   return messages
     .map((m) => {
-      if (m.role === 'tool') return `[tool result] ${m.content || ''}`
+      if (m.role === 'tool') return `[tool result] ${llmContentToText(m.content)}`
       if (m.role === 'assistant' && m.tool_calls?.length) {
         return `[assistant tool call] ${m.tool_calls.map((tc) => `${tc.function.name}(${tc.function.arguments})`).join('; ')}`
       }
-      return `[${m.role}] ${m.content || ''}`
+      return `[${m.role}] ${llmContentToText(m.content)}`
     })
     .join('\n')
 }
@@ -36,7 +37,7 @@ function selectTail(messages: LlmMessage[], keepTokens: number): number {
   let total = 0
   let start = messages.length
   for (let i = messages.length - 1; i >= 0; i--) {
-    const next = total + estimateTokens(messages[i].content || '')
+    const next = total + estimateTokens(llmContentToText(messages[i].content))
     if (next > keepTokens) break
     total = next
     start = i

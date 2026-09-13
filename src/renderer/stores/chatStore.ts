@@ -8,7 +8,7 @@ interface ChatStore {
   messages: Record<string, ChatMessage[]>
   updateMessages: (conversationId: string, messages: ChatMessage[]) => void
   clearConversation: (conversationId: string) => void
-  sendMessage: (conversationId: string, text: string) => Promise<void>
+  sendMessage: (conversationId: string, text: string, attachments?: Array<{ dataUrl: string; name?: string }>) => Promise<void>
   /** 会话处理中状态：从发送到交付物到达（done / ui_render / error 任一）的整个周期，不区分流式还是工具路径。 */
   busyConversations: Record<string, boolean>
 }
@@ -42,6 +42,7 @@ export const useChatStore = create<ChatStore>()(
                       contextId: data.contextId,
                       kind: null,
                       widgetNode: null,
+                      attachments: data.attachments ?? null,
                     } as ChatMessage,
                   ],
                 },
@@ -153,7 +154,7 @@ export const useChatStore = create<ChatStore>()(
           messages: { ...state.messages, [conversationId]: [] },
         })),
 
-      sendMessage: async (conversationId: string, text: string) => {
+      sendMessage: async (conversationId: string, text: string, attachments?: Array<{ dataUrl: string; name?: string }>) => {
         // 若该对话正在流式生成，先中断旧流再发送，防止并发双流导致消息交错（Main 不防并发）
         if (get().busyConversations[conversationId]) {
           await chatAbort(conversationId)
@@ -165,7 +166,7 @@ export const useChatStore = create<ChatStore>()(
         let msg: ChatMessage
         try {
           // chatSendApi 立即返回用户消息记录（agentLoop 后台跑，delta 实时推送）
-          msg = await chatSendApi(conversationId, text)
+          msg = await chatSendApi(conversationId, text, attachments)
         } catch (e) {
           // 发送失败（如未配置 API Key、IPC 错误）：复位 busy，提示用户，不落消息
           set((state) => ({

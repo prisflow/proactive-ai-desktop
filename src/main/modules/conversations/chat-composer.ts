@@ -33,12 +33,20 @@ export function loadStablePrefix(conversationId: string, contextId: string): str
   return parts.join('\n\n')
 }
 
+/** 串行工具纪律：头部稳定层固定条款（永不参与压缩、恒在请求头部）。
+ *  本架构为串行受控 ReAct——一轮只允许一个工具调用；多调用会破坏 tool 应答块的连续性
+ *  （assistant(tool_calls) 后的 tool 消息中间不得插入其他角色消息，否则 provider 400）。 */
+const TOOL_DISCIPLINE =
+  '【工具纪律】每轮最多调用一个工具，禁止在同一轮发起多个工具调用。' +
+  '调用后必须等待系统回灌的结果（【系统提示】），再决定下一步动作。'
+
 /**
  * 组装完整 LLM 消息数组（调度器 / flow 节点通用）：
  * @param opts.conversationId 会话 ID
  * @param opts.contextId 上下文 ID（记忆隔离键）
  * @param opts.history 公共聊天记录（Runtime 内存 history 快照，原样消息数组）
  * @param opts.tail 尾部指令块（本次调用的角色 PROMPT / 输入 / schema 指令等）
+ * @param opts.toolDiscipline 调度器传 true：system 头部追加串行工具纪律（flow 节点不需要）
  * @returns [system(稳定层), ...healed history, user(tail)]
  */
 export function composeContextMessages(opts: {
@@ -46,10 +54,15 @@ export function composeContextMessages(opts: {
   contextId: string
   history: LlmMessage[]
   tail: string
+  toolDiscipline?: boolean
 }): LlmMessage[] {
   // 稳定层：慢变记忆，任何变化仅使其后局部失效，前缀主体恒命中；无稳定内容时 system 为空
   const stable = loadStablePrefix(opts.conversationId, opts.contextId)
-  const systemContent = stable ? `【世界状态】\n${stable}` : ''
+  let systemContent = stable ? `【世界状态】\n${stable}` : ''
+  // 串行工具纪律：头部稳定层固定条款（不参与压缩，恒在头部）
+  if (opts.toolDiscipline) {
+    systemContent = systemContent ? `${systemContent}\n\n${TOOL_DISCIPLINE}` : TOOL_DISCIPLINE
+  }
 
   // 尾部指令块：调用方 tail 在后（快变，不影响前缀命中）。
   // 角色模板（initialPrompt）以 assistant 消息注入（保持尾部位置、不占 system 前缀、不影响缓存命中）

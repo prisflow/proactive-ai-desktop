@@ -4,19 +4,19 @@ import path from 'path'
 import AdmZip from 'adm-zip'
 import type { PluginManifest } from './types'
 import { isSemver, semverGt } from './types'
-import type { PluginImportResult } from '@shared/types/plugin'
+import type { PluginImportResult, PluginExportResult } from '@shared/types/plugin'
 import { logService, uniqueRunId } from '../../services/logger'
+import { pluginLoader } from './loader'
 /**
- * 插件安装器 —— zip 包导入与落盘。
+ * 插件安装器 —— zip 包导入/导出与落盘。
  *
- * 包格式（<plugin>.zip）：
- *   plugin.json     元数据（必填，见 PluginManifest）
- *   <entry>.js      入口单文件（CJS，module.exports = { id, name, version, setup }）
+ * 包格式（<plugin>.zip，两种形态均支持）：
+ *   目录型包：plugin.json + 入口 + 全部分层文件（.js/.md，与开发工具产物同构）
+ *   平铺包（历史兼容）：plugin.json + 单入口 .js
  *
- * 安装策略（与 PluginLoader 顶层扫描对齐）：
- *   将 entry.js 平铺写入 userData/plugins/<entry>.js，plugin.json 写入
- *   userData/plugins/<entry>.json —— loader 的 fs.watch 扫描顶层 .js 即自动加载，
- *   无需修改 loader 的目录/加载逻辑。
+ * 安装策略（与 PluginLoader 扫描对齐）：
+ * - 目录型包 → userData/plugins/<manifest.id>/（写盘期间抑制 watcher，写完显式装载）
+ * - 平铺包 → userData/plugins/<entry>.js + <entry>.json（watcher 自动拾取）
  */
 
 /** 校验 plugin.json 内容。返回错误信息或 null（合法）。 */
@@ -65,18 +65,47 @@ export async function importPluginFromZip(zipPath: string, pluginsDir: string): 
     const code = entryEntry.getData().toString('utf-8')
     if (!code.includes("module.exports")) return { ok: false, error: '入口文件不是 CJS 插件（缺少 module.exports）' }
 
-    // 4. 落盘：entry.js + plugin.json 平铺到 pluginsDir
+    // 4. 落盘：判定包形态——
+    //    多文件（entry 之外还有 .js/.md）= 目录型包 → plugins/<manifest.id>/（与开发工具产物同构）
+    //    单文件 = 平铺包（历史兼容）→ plugins/<entry>.js + <entry>.json
     await fsp.mkdir(pluginsDir, { recursive: true })
-    const entryOut = path.join(pluginsDir, entryName)
-    const manifestOut = path.join(pluginsDir, `${path.basename(entryName, '.js')}.json`)
-    await fsp.writeFile(entryOut, code)
-    await fsp.writeFile(manifestOut, JSON.stringify(manifest, null, 2))
-
-    logService.log('info', undefined, {
-      runId: uniqueRunId('plugin'),
-      name: 'installer.import',
-      message: `imported plugin ${manifest.id} v${manifest.version} -> ${entryOut}`,
-    })
+    const safeName = (n: string) => !n.includes('/') && !n.includes('\\') && n !== '.' && n !== '..'
+    const payload = entries.filter(
+      (e) => !e.isDirectory && e.entryName !== 'plugin.json' && safeName(e.entryName) && /\.(js|md)$/.test(e.entryName),
+    )
+    const multiFile = payload.length > 1
+    if (multiFile) {
+      // 目录型安装：目录名 = manifest.id（白名单校验，防路径注入）
+      if (!/^[a-z][a-z0-9_]*$/i.test(manifest.id)) return { ok: false, error: 'manifest.id 含非法字符，无法作为目录名' }
+      const targetDir = path.join(pluginsDir, manifest.id)
+      if (fs.existsSync(targetDir)) return { ok: false, error: `插件 ${manifest.id} 已存在（请先卸载旧版本再导入）` }
+      // 写盘期间抑制 watcher（防半成品装载），写完显式装载
+      pluginLoader.markDevWriting(manifest.id)
+      await fsp.mkdir(targetDir, { recursive: true })
+      for (const e of payload) {
+        const dest = path.join(targetDir, e.entryName)
+        if (!dest.startsWith(targetDir + path.sep)) continue // 双保险（safeName 已拦）
+        await fsp.writeFile(dest, e.getData())
+      }
+      await fsp.writeFile(path.join(targetDir, 'plugin.json'), JSON.stringify(manifest, null, 2))
+      pluginLoader.loadEntryNow(path.join(targetDir, entryName))
+      logService.log('info', undefined, {
+        runId: uniqueRunId('plugin'),
+        name: 'installer.import',
+        message: `imported plugin package ${manifest.id} v${manifest.version} (${payload.length} files) -> ${targetDir}`,
+      })
+    } else {
+      // 平铺安装（单文件包，历史兼容）
+      const entryOut = path.join(pluginsDir, entryName)
+      const manifestOut = path.join(pluginsDir, `${path.basename(entryName, '.js')}.json`)
+      await fsp.writeFile(entryOut, code)
+      await fsp.writeFile(manifestOut, JSON.stringify(manifest, null, 2))
+      logService.log('info', undefined, {
+        runId: uniqueRunId('plugin'),
+        name: 'installer.import',
+        message: `imported plugin ${manifest.id} v${manifest.version} -> ${entryOut}`,
+      })
+    }
 
     return {
       ok: true,
@@ -95,6 +124,72 @@ export async function importPluginFromZip(zipPath: string, pluginsDir: string): 
       message: `import failed: ${msg}`,
     })
     return { ok: false, error: `导入失败：${msg}` }
+  }
+}
+
+/** 读插件简况（目录型优先，平铺兜底）。不存在返回 null。 */
+export function getPluginBrief(
+  pluginId: string,
+  pluginsDir: string,
+): { id: string; name: string; version: string; flat: boolean } | null {
+  try {
+    const dirManifest = path.join(pluginsDir, pluginId, 'plugin.json')
+    if (fs.existsSync(dirManifest)) {
+      const m = JSON.parse(fs.readFileSync(dirManifest, 'utf-8')) as PluginManifest
+      return { id: m.id ?? pluginId, name: m.name ?? pluginId, version: m.version ?? '0.0.0', flat: false }
+    }
+    const flatMan = path.join(pluginsDir, `${pluginId}.json`)
+    const flatJs = path.join(pluginsDir, `${pluginId}.js`)
+    if (fs.existsSync(flatMan) && fs.existsSync(flatJs)) {
+      const m = JSON.parse(fs.readFileSync(flatMan, 'utf-8')) as PluginManifest
+      return { id: m.id ?? pluginId, name: m.name ?? pluginId, version: m.version ?? '0.0.0', flat: true }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/** 导出插件为 zip（目录型：plugin.json + 全部分层 .js + intent.md；平铺型：转标准包）。 */
+export function exportPluginToZip(pluginId: string, pluginsDir: string, savePath: string): PluginExportResult {
+  try {
+    const brief = getPluginBrief(pluginId, pluginsDir)
+    if (!brief) return { ok: false, error: `插件不存在：${pluginId}` }
+    const zip = new AdmZip()
+    let files = 0
+    const add = (name: string, data: Buffer | string) => {
+      zip.addFile(name, typeof data === 'string' ? Buffer.from(data, 'utf-8') : data)
+      files++
+    }
+    if (!brief.flat) {
+      const dir = path.join(pluginsDir, pluginId)
+      add('plugin.json', fs.readFileSync(path.join(dir, 'plugin.json')))
+      for (const f of fs.readdirSync(dir)) {
+        if (f === 'plugin.json') continue
+        if (!/\.(js|md)$/.test(f)) continue // intent.md 含在内；数据/杂项不入包
+        add(f, fs.readFileSync(path.join(dir, f)))
+      }
+    } else {
+      const manifestRaw = fs.readFileSync(path.join(pluginsDir, `${pluginId}.json`), 'utf-8')
+      const manifest = JSON.parse(manifestRaw) as PluginManifest
+      add('plugin.json', manifestRaw)
+      add(manifest.entry ?? `${pluginId}.js`, fs.readFileSync(path.join(pluginsDir, `${pluginId}.js`)))
+    }
+    zip.writeZip(savePath)
+    logService.log('info', undefined, {
+      runId: uniqueRunId('plugin'),
+      name: 'installer.export',
+      message: `exported plugin ${pluginId} (${files} files) -> ${savePath}`,
+    })
+    return { ok: true, path: savePath }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    logService.log('error', 'error', {
+      runId: uniqueRunId('plugin'),
+      name: 'installer.export',
+      message: `export failed: ${msg}`,
+    })
+    return { ok: false, error: `导出失败：${msg}` }
   }
 }
 

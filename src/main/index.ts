@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, protocol, net } from 'electron'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import { logService, uniqueRunId } from './services/logger'
 import { globalConfigStore, databaseService, conversationStore } from './services/store'
 import { createWindow } from './window'
@@ -10,11 +11,19 @@ import { contextRegistry } from './modules/conversations/context/context-manager
 import { toolRegistry } from './modules/conversations/tool/tool-manager'
 import { createBuiltinTools } from './modules/conversations/tool/builtin-tools'
 import { pluginLoader, syncBuiltinPlugins } from './modules/plugin'
+import { createPluginDevTools } from './modules/plugin/dev-tools'
 import { flowHost } from './modules/conversations/flow/flow-host'
+import { attachmentFilePath } from './modules/conversations/attachments'
 import { LlmProvider } from './modules/llm'
 import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '@shared/constants'
 
 const WINDOW_TITLE = 'ProactiveAI'
+
+// 聊天图片附件的自定义协议（须在 app ready 前声明为特权 scheme，
+// renderer <img src="app-attachment://<cid>/<file>"> 才能直读附件文件）
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app-attachment', privileges: { standard: true, secure: true } },
+])
 
 // 进程级异常兜底：硬崩溃前留下日志，便于排查闪退
 process.on('uncaughtException', (e) => {
@@ -37,6 +46,18 @@ process.on('unhandledRejection', (reason) => {
 app.whenReady().then(async () => {
   if (process.platform === 'darwin') app.setName(WINDOW_TITLE)
 
+  // 聊天图片附件协议：app-attachment://<conversationId>/<file> → 直读附件文件（路径白名单校验）
+  protocol.handle('app-attachment', (req) => {
+    try {
+      const u = new URL(req.url)
+      const abs = attachmentFilePath(u.hostname, decodeURIComponent(u.pathname.replace(/^\//, '')))
+      if (!abs) return new Response('invalid attachment path', { status: 400 })
+      return net.fetch(pathToFileURL(abs).toString())
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
+  })
+
   Menu.setApplicationMenu(null)
   databaseService.init()
   // 清理超过保留期的归档会话（软删除的数据不会自动消失）
@@ -54,6 +75,11 @@ app.whenReady().then(async () => {
 
   // 注册内置工具到全局 ToolRegistry（一次性）
   for (const def of createBuiltinTools()) {
+    toolRegistry.register(def)
+  }
+
+  // 注册插件开发工具（主上下文内：创建/修改/装载/测试插件）
+  for (const def of createPluginDevTools(path.join(app.getAppPath(), 'resources'))) {
     toolRegistry.register(def)
   }
 

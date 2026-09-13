@@ -46,4 +46,6 @@ export interface ChatMessage {
   /** 消息种类：'context-switch' = 上下文切换分隔标签（不渲染气泡）。 */
   kind: 'context-switch' | null
   widgetNode: WidgetNode | null
+  /** 用户消息的图片附件（展示 URL 由 main 的 app-attachment:// 协议直读）。 */
+  attachments?: Array<{ url: string; mime: string; name: string }> | null
 }

@@ -30,3 +30,11 @@ export interface PluginUninstallResult {
   ok: boolean
   error?: string
 }
+
+/** zip 导出结果（plugins:export）。 */
+export interface PluginExportResult {
+  ok: boolean
+  error?: string
+  /** 导出成功时的目标文件路径 */
+  path?: string
+}

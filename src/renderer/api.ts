@@ -1,7 +1,7 @@
 import { LogEntry, LogQuery, GlobalSettings, Conversation, ChatMessage } from '@shared'
 import type { AgentStreamPushV1 } from '@shared/types/stream'
 import type { UsageTotals, UsageDaily, UsageHourly, UsageContextDaily } from '@shared/types/usage'
-import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
+import type { PluginImportResult, PluginInfo, PluginUninstallResult, PluginExportResult } from '@shared/types/plugin'
 
 /** 流式推送数据（Main → Renderer，与 shared AgentStreamPushV1 同源）。 */
 export type ChatStreamData = AgentStreamPushV1
@@ -27,7 +27,7 @@ declare global {
         getMessages: (id: string) => Promise<ChatMessage[]>
       }
       chat: {
-        send: (conversationId: string, text: string) => Promise<ChatMessage>
+        send: (conversationId: string, text: string, attachments?: Array<{ dataUrl: string; name?: string }>) => Promise<ChatMessage>
         abort: (conversationId: string) => Promise<void>
         onStream: (callback: (event: any, data: AgentStreamPushV1) => void) => void
         offStream: () => void
@@ -50,6 +50,7 @@ declare global {
         importZip: () => Promise<PluginImportResult>
         list: () => Promise<PluginInfo[]>
         uninstall: (entryName: string) => Promise<PluginUninstallResult>
+        export: (entryName: string) => Promise<PluginExportResult>
       }
       relay: {
         status: () => Promise<{ state: 'off' | 'connecting' | 'online'; lastError: string | null }>
@@ -100,8 +101,8 @@ export function getConversationMessages(id: string): Promise<ChatMessage[]> {
 }
 
 /** 发送用户消息到 Main 的 Runtime。返回已持久化的 ChatMessage（含真实 UUID）。 */
-export function chatSend(conversationId: string, text: string): Promise<ChatMessage> {
-  return window.electronAPI.chat.send(conversationId, text)
+export function chatSend(conversationId: string, text: string, attachments?: Array<{ dataUrl: string; name?: string }>): Promise<ChatMessage> {
+  return window.electronAPI.chat.send(conversationId, text, attachments)
 }
 
 /** 中断流式响应。 */

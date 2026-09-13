@@ -3,7 +3,7 @@ import type { GlobalSettings, Conversation, ChatMessage } from '@shared/types/do
 import type { LogEntry, LogQuery } from '@shared/types/log'
 import type { AgentStreamPushV1 } from '@shared/types/stream'
 import type { UsageTotals, UsageDaily, UsageHourly, UsageContextDaily } from '@shared/types/usage'
-import type { PluginImportResult, PluginInfo, PluginUninstallResult } from '@shared/types/plugin'
+import type { PluginImportResult, PluginInfo, PluginUninstallResult, PluginExportResult } from '@shared/types/plugin'
 
 /**
  * 通过 contextBridge 暴露 IPC 接口到渲染进程。
@@ -53,9 +53,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /** 用户输入与 LLM 流式响应。 */
   chat: {
-    /** 发送用户消息到 Runtime，返回已持久化的 ChatMessage。 */
-    send: (conversationId: string, text: string): Promise<ChatMessage> =>
-      ipcRenderer.invoke('chat:send', conversationId, text),
+    /** 发送用户消息到 Runtime，返回已持久化的 ChatMessage。attachments 可选（dataURL 图片）。 */
+    send: (conversationId: string, text: string, attachments?: Array<{ dataUrl: string; name?: string }>): Promise<ChatMessage> =>
+      ipcRenderer.invoke('chat:send', conversationId, text, attachments),
     /** 中断当前流式响应。 */
     abort: (conversationId: string): Promise<void> =>
       ipcRenderer.invoke('chat:abort', conversationId),
@@ -105,6 +105,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 卸载插件（注销注册项并删除文件）。 */
     uninstall: (entryName: string): Promise<PluginUninstallResult> =>
       ipcRenderer.invoke('plugins:uninstall', entryName),
+    /** 导出插件为 zip（传入 entry，弹出保存对话框，分享给他人导入）。 */
+    export: (entryName: string): Promise<PluginExportResult> =>
+      ipcRenderer.invoke('plugins:export', entryName),
   },
 
   /** 公网中继（手机 anywhere 访问，走用户自建服务器）。 */

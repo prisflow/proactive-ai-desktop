@@ -9,16 +9,30 @@ export interface LlmConfig {
   baseURL: string | null
 }
 
+/** 多模态内容分片（OpenAI content parts 格式；纯文本消息仍用 string 保持兼容）。 */
+export type LlmContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 /** OpenAI Chat Completion messages 参数中的单条消息。 */
 export interface LlmMessage {
   /** 消息角色。system = 系统提示，user = 用户，assistant = AI，tool = 工具结果回填。 */
   role: 'system' | 'user' | 'assistant' | 'tool'
-  /** 消息文本内容。tool_calls 类型的消息 content 为空字符串。 */
-  content: string
+  /** 消息内容：纯文本（string）或多模态分片（text + image_url）。tool_calls 类型的消息 content 为空字符串。 */
+  content: string | LlmContentPart[]
   /** tool 角色消息必填：关联的 tool_call ID。 */
   tool_call_id?: string
   /** assistant 角色消息可选：LLM 发起的工具调用列表。 */
   tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>
+}
+
+/** 把消息内容归一为纯文本（供 token 估算/摘要序列化/日志等文本操作使用，跳过图像分片）。 */
+export function llmContentToText(content: string | LlmContentPart[]): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n')
 }
 
 /**

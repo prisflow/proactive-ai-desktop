@@ -181,7 +181,21 @@ export default forwardRef<ChatAreaHandle, ChatAreaProps>(function ChatArea({ onS
                       <MarkdownView content={msg.content} />
                     )
                   ) : (
-                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                    <>
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className={cn('flex flex-wrap gap-2', msg.content.trim() && 'mb-2')}>
+                          {msg.attachments.map((a, i) => (
+                            <img
+                              key={i}
+                              src={a.url}
+                              alt={a.name}
+                              className="max-h-48 max-w-full rounded-2xl border border-[var(--app-border)] object-cover"
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {msg.content.trim() && <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>}
+                    </>
                   )}
                   <div className="flex items-center gap-2">
                     <span className="mt-2 block text-[10px] uppercase text-[var(--app-muted)] opacity-60">{formatDate(msg.createdAt)}</span>

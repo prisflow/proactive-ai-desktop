@@ -1,6 +1,5 @@
 import type { ToolDefinition, ToolResult, ToolPromptResult } from './types'
 import { contextRegistry } from '../context/context-manager'
-import { memorySet, memoryGet, memorySearch, memoryRemove } from './memory-store'
 
 interface EnterResult { contextId: string; reason: string }
 interface ExitResult { exited: true }
@@ -89,116 +88,9 @@ export function createBuiltinTools(): ToolDefinition[] {
         return { ok: true, result: { yield: true } }
       },
     },
-    {
-      name: 'host_memory_set',
-      description: '写入通用记忆（按会话+上下文隔离）。slot 为键（同会话同上下文内覆盖），data 为内容，type 可选 world/character/faction 等，importance 默认为 normal。',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          slot: { type: 'string', minLength: 1, description: '记忆键' },
-          data: { type: 'string', minLength: 1, description: '记忆内容' },
-          type: { type: 'string', description: '记忆类型' },
-          importance: { type: 'string', enum: ['core', 'normal'], description: '重要度' },
-        },
-        required: ['slot', 'data'],
-      },
-      silent: false,
-      transformPrompt: (result: ToolResult) => {
-        if (!result.ok) return failPrompt('host_memory_set', result.error)
-        const d = result.result as { slot?: string } | undefined
-        return textPrompt('host_memory_set', `[记忆已写入] ${d?.slot ?? ''}`)
-      },
-      run: (input, meta) => {
-        const conversationId = meta.conversationId
-        const contextId = meta.contextId
-        if (!conversationId) return { ok: false, error: 'conversationId 缺失' } as ToolResult
-        const slot = String((input as Record<string, unknown>).slot || '').trim()
-        const data = String((input as Record<string, unknown>).data || '').trim()
-        if (!slot || !data) return { ok: false, error: 'slot/data 不能为空' } as ToolResult
-        const type = typeof (input as Record<string, unknown>).type === 'string' ? String((input as Record<string, unknown>).type) : 'note'
-        const importance = (input as Record<string, unknown>).importance === 'core' ? 'core' : 'normal'
-        try {
-          memorySet(conversationId, contextId, slot, data, type, importance)
-          return { ok: true, result: { slot } } as ToolResult
-        } catch (e) {
-          return { ok: false, error: String(e) } as ToolResult
-        }
-      },
-    },
-    {
-      name: 'host_memory_get',
-      description: '读取单条通用记忆。按 slot 精确读取当前会话+上下文的记忆。',
-      inputSchema: {
-        type: 'object',
-        properties: { slot: { type: 'string', minLength: 1 } },
-        required: ['slot'],
-      },
-      silent: false,
-      transformPrompt: (result: ToolResult) => {
-        if (!result.ok) return failPrompt('host_memory_get', result.error)
-        const d = result.result as { data?: string; slot?: string } | undefined
-        return textPrompt('host_memory_get', d?.data ? `[记忆] ${d.slot}: ${d.data}` : '[记忆] 未找到')
-      },
-      run: (input, meta) => {
-        const conversationId = meta.conversationId
-        const contextId = meta.contextId
-        const slot = String((input as Record<string, unknown>).slot || '').trim()
-        try {
-          const row = memoryGet(conversationId, contextId, slot)
-          if (!row) return { ok: true, result: { slot, data: null } } as ToolResult
-          return { ok: true, result: row } as ToolResult
-        } catch (e) { return { ok: false, error: String(e) } as ToolResult }
-      },
-    },
-    {
-      name: 'host_memory_search',
-      description: '搜索通用记忆。按关键词模糊匹配当前会话+上下文的所有记忆，返回 slot/data 列表。',
-      inputSchema: {
-        type: 'object',
-        properties: { query: { type: 'string', description: '关键词，为空则返回全部' } },
-        required: [],
-      },
-      silent: false,
-      transformPrompt: (result: ToolResult) => {
-        if (!result.ok) return failPrompt('host_memory_search', result.error)
-        const d = result.result as { items?: Array<{ slot: string; data: string }> } | undefined
-        if (!d?.items?.length) return textPrompt('host_memory_search', '[记忆] 暂无')
-        return textPrompt('host_memory_search', `[记忆] 共${d.items.length}条：` + d.items.map((i) => `${i.slot}: ${String(i.data).slice(0, 80)}`).join(' | '))
-      },
-      run: (input, meta) => {
-        const conversationId = meta.conversationId
-        const contextId = meta.contextId
-        const query = typeof (input as Record<string, unknown>).query === 'string' ? String((input as Record<string, unknown>).query).trim() : ''
-        try {
-          const rows = memorySearch(conversationId, contextId, query)
-          return { ok: true, result: { items: rows } } as ToolResult
-        } catch (e) { return { ok: false, error: String(e) } as ToolResult }
-      },
-    },
-    {
-      name: 'host_memory_remove',
-      description: '删除通用记忆。按 slot 删除当前会话+上下文的记忆。',
-      inputSchema: {
-        type: 'object',
-        properties: { slot: { type: 'string', minLength: 1 } },
-        required: ['slot'],
-      },
-      silent: false,
-      transformPrompt: (result: ToolResult) => {
-        if (!result.ok) return failPrompt('host_memory_remove', result.error)
-        return textPrompt('host_memory_remove', `[记忆已删除] ${(result.result as { slot?: string })?.slot ?? ''}`)
-      },
-      run: (input, meta) => {
-        const conversationId = meta.conversationId
-        const contextId = meta.contextId
-        const slot = String((input as Record<string, unknown>).slot || '').trim()
-        try {
-          const ok = memoryRemove(conversationId, contextId, slot)
-          if (!ok) return { ok: false, error: `记忆 ${slot} 不存在` } as ToolResult
-          return { ok: true, result: { slot } } as ToolResult
-        } catch (e) { return { ok: false, error: String(e) } as ToolResult }
-      },
-    },
+    // host_memory_set/get/search/remove 已删除：记忆 = 被动压缩（checkpoint 摘要写入 summarySlot
+    // 并经 prefixSlots 回注头部，见 compaction/summarizer.ts），LLM 手动读写与自动管线冗余抢道。
+    // memory-store.ts 保留——压缩管线与 chat-composer 仍在使用。
     {
       name: 'host_render_ui',
       description:

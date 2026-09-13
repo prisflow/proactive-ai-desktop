@@ -172,6 +172,21 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function handleExportPlugin(p: { name: string; entry: string }) {
+    try {
+      const res = await window.electronAPI.plugins.export(p.entry)
+      if (res.ok) {
+        toast.push(t('settings.exportPluginSuccess', { path: res.path ?? '' }), 'info')
+      } else if (res.error === '已取消') {
+        toast.push(t('settings.exportPluginCanceled'), 'info')
+      } else {
+        toast.push(t('settings.exportPluginFailed', { error: res.error ?? '未知错误' }), 'error')
+      }
+    } catch (e) {
+      toast.push(t('settings.exportPluginFailed', { error: e instanceof Error ? e.message : String(e) }), 'error')
+    }
+  }
+
   const themes: { key: 'light' | 'dark' | 'auto'; label: string }[] = [
     { key: 'light', label: t('settings.themeLight') },
     { key: 'dark', label: t('settings.themeDark') },
@@ -251,9 +266,14 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                         <div className="mt-0.5 truncate text-xs text-[var(--app-muted)]">{p.description}</div>
                       )}
                     </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => handleExportPlugin(p)}>
+                        {t('settings.exportPlugin')}
+                      </Button>
                     <Button type="button" variant="ghost" size="sm" onClick={() => handleUninstallPlugin(p)}>
                       {t('settings.uninstallPlugin')}
                     </Button>
+                    </div>
                   </li>
                 ))}
               </ul>

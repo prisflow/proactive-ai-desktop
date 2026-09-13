@@ -1,6 +1,6 @@
 {
   "name": "proactive-ai-desktop",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Proactive AI Chat - 桌面版",
   "main": "./out/main/index.js",
   "author": "ProactiveAI",

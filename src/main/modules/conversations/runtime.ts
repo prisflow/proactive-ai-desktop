@@ -25,7 +25,7 @@ import { contextRegistry } from './context'
 import type { ContextDefinition } from './context'
 import { toolRegistry } from './tool'
 import { composeContextMessages } from './chat-composer'
-import { LlmProvider, systemNote, type LlmConfig, type LlmMessage, type LlmToolDef } from '../llm'
+import { LlmProvider, systemNote, type LlmConfig, type LlmMessage, type LlmToolDef, type LlmContentPart } from '../llm'
 import { logService, uniqueRunId } from '../../services/logger'
 import { conversationStore } from '../../services/store'
 import type { MessageRecord } from '../../services/store/database'
@@ -37,6 +37,7 @@ import { MODEL_SPECS, DEFAULT_CONTEXT_WINDOW, DEFAULT_OUTPUT_LIMIT } from '@shar
 import type { RuntimeHost } from './runtime/host'
 import { SubcontextManager } from './runtime/subcontext'
 import { ToolRunner } from './runtime/tool-runner'
+import { readAttachmentDataUrl, attachmentDisplayUrl, type SavedAttachment } from './attachments'
 
 /** 单轮内工具连续失败上限：达到即终止本轮，防 LLM 死循环重试烧 token。 */
 const MAX_TOOL_FAILURES = 5
@@ -159,7 +160,19 @@ export class Runtime implements RuntimeHost {
     for (let i = startIdx; i < records.length; i++) {
       const rec = records[i]
       if (rec.role === 'user') {
-        out.push({ role: 'user', content: rec.content })
+        // 图片附件：从磁盘读回 dataURL 组装多模态分片（无附件保持纯文本）
+        const atts = (rec.extraData as { attachments?: SavedAttachment[] } | null)?.attachments
+        if (atts?.length) {
+          const parts: LlmContentPart[] = [
+            ...(rec.content ? [{ type: 'text' as const, text: rec.content }] : []),
+            ...atts
+              .map((a) => ({ type: 'image_url' as const, image_url: { url: readAttachmentDataUrl(this.conversationId, a.file) ?? '' } }))
+              .filter((p) => p.image_url.url),
+          ]
+          out.push({ role: 'user', content: parts.length ? parts : rec.content })
+        } else {
+          out.push({ role: 'user', content: rec.content })
+        }
       } else {
         // context → 可能是 tool 结果、assistant 文本、UI 或 tool_calls 记录
         const extra = rec.extraData as
@@ -303,15 +316,23 @@ export class Runtime implements RuntimeHost {
   }
 
   /** 用户输入入口：落库 + 进历史 → 立即返回记录，agentLoop 后台串行执行（delta 实时推送前端）。 */
-  async run(userText: string): Promise<MessageRecord> {
+  async run(userText: string, attachments?: SavedAttachment[]): Promise<MessageRecord> {
     this.abortController = new AbortController()
+    const atts = attachments && attachments.length ? attachments : undefined
     const record = conversationStore.addMessage(this.conversationId, {
       role: 'user',
       content: userText,
       contextId: this.activeContextId,
-      extraData: null,
+      extraData: atts ? { attachments: atts } : null,
     })
-    this.pushHistory(this.activeContextId, { role: 'user', content: userText })
+    // 多模态内容：文本 + 图片 dataURL 分片直通（模型不支持图像输入时由 API 层报错，日志可见）
+    const parts: LlmContentPart[] = [
+      ...(userText ? [{ type: 'text' as const, text: userText }] : []),
+      ...(atts ?? [])
+        .map((a) => ({ type: 'image_url' as const, image_url: { url: readAttachmentDataUrl(this.conversationId, a.file) ?? '' } }))
+        .filter((p) => p.image_url.url),
+    ]
+    this.pushHistory(this.activeContextId, { role: 'user', content: atts && parts.length ? parts : userText })
     // 多端同步：用户消息广播给全部推送通道（发起端按 messageId 去重，其他端实时追加）
     transport.push({
       kind: 'user-message',
@@ -319,14 +340,15 @@ export class Runtime implements RuntimeHost {
       runId: uniqueRunId('user'),
       messageId: record.id,
       content: userText,
+      attachments: atts?.map((a) => ({ url: attachmentDisplayUrl(this.conversationId, a.file), mime: a.mime, name: a.name })),
       contextId: this.activeContextId ?? null,
       createdAt: record.createdAt,
     })
 
-    // 首次消息自动重命名：截取前 30 字
+    // 首次消息自动重命名：截取前 30 字（纯图片消息用占位名）
     const conv = conversationStore.get(this.conversationId)
     if (conv && conv.title === '新对话') {
-      conversationStore.update(this.conversationId, { title: userText.slice(0, 30) })
+      conversationStore.update(this.conversationId, { title: userText.trim().slice(0, 30) || '[图片]' })
     }
 
     // 后台跑 agentLoop（不 await）：chatSendApi 立即返回用户记录，前端先显示用户消息，
@@ -365,6 +387,7 @@ export class Runtime implements RuntimeHost {
           contextId: this.activeContextId,
           history: this.getActiveHistory(),
           tail,
+          toolDiscipline: true, // 串行工具纪律进头部稳定层（flow 节点不需要）
         })
         const toolDefs = this.buildToolDefs()
 
@@ -410,11 +433,14 @@ export class Runtime implements RuntimeHost {
               toolCalls: toolCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.args })),
             },
           }]
-          // 按序执行本轮全部工具（host_yield 收轮信号最后执行，避免前序工具被跳过成孤儿）
+          // 强制串行（头部工具纪律 + 本防御双保险）：只执行首个调用，其余以 tool 消息回喂——
+          // 连续 tool 块保持无 user 插队（assistant(tool_calls) 后的 tool 消息中间插入
+          // 其他角色消息会被 provider 以「insufficient tool messages」400 拒绝，见 2026-09-11 事故）
           const ordered = [...toolCalls].sort((a, b) => (a.name === 'host_yield' ? 1 : 0) - (b.name === 'host_yield' ? 1 : 0))
           let yielded = false
           let failCount = 0
-          for (const tc of ordered) {
+          for (let i = 0; i < ordered.length; i++) {
+            const tc = ordered[i]
             // 中断检查：已 abort 则不再执行剩余工具，补中断 tool 消息保持配对
             if (this.abortController.signal.aborted) {
               this.pushHistory(this.activeContextId, { role: 'tool', tool_call_id: tc.id, content: '[工具调用已中断，未执行]' })
@@ -426,8 +452,36 @@ export class Runtime implements RuntimeHost {
               })
               continue
             }
+            // 串行防御：首个之外的调用不执行，直接 tool 消息回喂（不产生 user 状态文本）
+            if (i > 0) {
+              const skipMsg = '[串行限制] 每轮只允许调用一个工具，本次调用已忽略。请等待当前工具结果回灌后，再逐个发起调用。'
+              this.pushHistory(this.activeContextId, { role: 'tool', tool_call_id: tc.id, content: skipMsg })
+              pendingDb.push({
+                role: 'context',
+                content: skipMsg,
+                contextId: this.activeContextId,
+                extraData: { kind: 'tool-result', toolName: tc.name, toolCallId: tc.id },
+              })
+              continue
+            }
             const r = await this.handleToolCall(tc, llmRunId, pendingDb)
-            if (r === 'stop') { yielded = true; break }
+            if (r === 'stop') {
+              yielded = true
+              // 收轮排水：本批剩余声明的调用必须补占位应答——声明即债务（assistant 消息已入历史），
+              // 不闭合则下次请求 400。host_yield 排序在末尾所以历史上从不触发；
+              // autoYield 可在任意位置收轮（2026-09-11 协议账本分析），必须显式排水。
+              for (const rest of ordered.slice(i + 1)) {
+                const closed = '[本轮已收轮，本次调用未执行]'
+                this.pushHistory(this.activeContextId, { role: 'tool', tool_call_id: rest.id, content: closed })
+                pendingDb.push({
+                  role: 'context',
+                  content: closed,
+                  contextId: this.activeContextId,
+                  extraData: { kind: 'tool-result', toolName: rest.name, toolCallId: rest.id },
+                })
+              }
+              break
+            }
             if (r === 'fail') failCount++
           }
           // 统一落库：assistant(tool_calls) 先落，再 tool-result/event-status（顺序与内存一致，配对完整）

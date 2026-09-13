@@ -22,6 +22,8 @@ export type AgentStreamPushV1 =
       /** 已落库的用户消息 ID（多端去重用：发起端本地已显示，跳过同 id）。 */
       messageId: string
       content: string
+      /** 图片附件展示 URL（app-attachment://）。 */
+      attachments?: Array<{ url: string; mime: string; name: string }>
       contextId: string | null
       /** 落库时间戳（多端时间戳渲染用）。 */
       createdAt: number
